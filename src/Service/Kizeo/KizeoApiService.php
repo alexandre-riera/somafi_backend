@@ -168,6 +168,47 @@ class KizeoApiService
     }
 
     /**
+     * Récupère une liste externe Kizeo (clients ou équipements)
+     * 
+     * Endpoint: GET /rest/v3/lists/{list_id}
+     * 
+     * @param int $listId ID de la liste Kizeo (kizeo_list_id ou kizeo_external_list_id)
+     * @return array{
+     *     status: string,
+     *     list: array{
+     *         id: string,
+     *         name: string,
+     *         class: string,
+     *         update_time: string,
+     *         is_advanced: bool,
+     *         items: array<string>
+     *     }
+     * }|null
+     */
+    public function getList(int $listId): ?array
+    {
+        $endpoint = sprintf('/lists/%d', $listId);
+        
+        try {
+            $response = $this->request('GET', $endpoint);
+            
+            $this->kizeoLogger->debug('Liste Kizeo récupérée', [
+                'list_id' => $listId,
+                'items_count' => count($response['list']['items'] ?? []),
+            ]);
+            
+            return $response;
+            
+        } catch (\Exception $e) {
+            $this->kizeoLogger->error('Erreur récupération liste Kizeo', [
+                'list_id' => $listId,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
      * Met à jour une liste externe Kizeo
      * ATTENTION: Écrase la liste existante
      * 

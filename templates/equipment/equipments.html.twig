@@ -1,0 +1,260 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ client.raison_sociale }} - Équipements{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+    {# Breadcrumb #}
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_home') }}">Accueil</a></li>
+            <li class="breadcrumb-item"><a href="{{ path('app_clients_list', {agencyCode: agencyCode}) }}">{{ agency.nom }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ client.raison_sociale }}</li>
+        </ol>
+    </nav>
+
+    {# En-tête client #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-8">
+                    <h1 class="h3 mb-2">
+                        <i class="bi bi-building me-2 text-primary"></i>
+                        {{ client.raison_sociale }}
+                    </h1>
+                    <div class="text-muted">
+                        {% if client.adresse is defined and client.adresse %}
+                            <p class="mb-1">
+                                <i class="bi bi-geo-alt me-1"></i>
+                                {{ client.adresse }}
+                                {% if client.adresse2 is defined and client.adresse2 %}<br>{{ client.adresse2 }}{% endif %}
+                            </p>
+                        {% endif %}
+                        <p class="mb-1">
+                            <strong>{{ client.code_postal }}</strong> {{ client.ville }}
+                        </p>
+                        {% if client.telephone is defined and client.telephone %}
+                            <p class="mb-1">
+                                <i class="bi bi-telephone me-1"></i> {{ client.telephone }}
+                            </p>
+                        {% endif %}
+                        {% if client.email is defined and client.email %}
+                            <p class="mb-0">
+                                <i class="bi bi-envelope me-1"></i> 
+                                <a href="mailto:{{ client.email }}">{{ client.email }}</a>
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-4 text-md-end">
+                    <span class="badge bg-secondary fs-6 mb-2">{{ agency.code }}</span>
+                    {% if client.id_societe %}
+                        <br><span class="badge bg-info" title="ID Société GESTAN">Société #{{ client.id_societe }}</span>
+                    {% endif %}
+                    <div class="mt-3">
+                        <a href="{{ path('app_clients_list', {agencyCode: agencyCode}) }}" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-arrow-left me-1"></i> Retour liste
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Filtres Année / Visite #}
+    <div class="card shadow-sm mb-4 border-primary">
+        <div class="card-header bg-primary text-white">
+            <i class="bi bi-funnel me-2"></i> Filtres de visite
+        </div>
+        <div class="card-body">
+            <form method="get" action="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: client.id_contact}) }}" class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label for="anneeSelect" class="form-label fw-semibold">
+                        <i class="bi bi-calendar me-1"></i> Année
+                    </label>
+                    <select name="annee" id="anneeSelect" class="form-select form-select-lg">
+                        {% for year in available_years %}
+                            <option value="{{ year }}" {{ year == annee ? 'selected' : '' }}>
+                                {{ year }}
+                            </option>
+                        {% else %}
+                            <option value="{{ annee }}">{{ annee }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="visiteSelect" class="form-label fw-semibold">
+                        <i class="bi bi-clipboard-check me-1"></i> Visite
+                    </label>
+                    <select name="visite" id="visiteSelect" class="form-select form-select-lg">
+                        {% for visit in available_visits %}
+                            <option value="{{ visit }}" {{ visit == visite ? 'selected' : '' }}>
+                                {{ visit }}
+                            </option>
+                        {% else %}
+                            <option value="{{ visite }}">{{ visite }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-primary btn-lg w-100">
+                        <i class="bi bi-filter me-1"></i> Filtrer
+                    </button>
+                </div>
+            </form>
+            
+            {% if last_visit.date %}
+                <div class="mt-3 text-muted">
+                    <small>
+                        <i class="bi bi-clock-history me-1"></i>
+                        Dernière visite : <strong>{{ last_visit.visite }}</strong> {{ last_visit.annee }}
+                        {% if last_visit.date %}
+                            ({{ last_visit.date|date('d/m/Y') }})
+                        {% endif %}
+                    </small>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Zone d'actions #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-body d-flex flex-wrap gap-3">
+            <button type="button" class="btn btn-success" id="btnGeneratePdf">
+                <i class="bi bi-file-pdf me-1"></i> Générer PDF complet
+            </button>
+            <div class="form-check form-switch align-self-center ms-2">
+                <input class="form-check-input" type="checkbox" id="includePhotos" checked>
+                <label class="form-check-label" for="includePhotos">Inclure les photos</label>
+            </div>
+            <div class="ms-auto">
+                <a href="#" class="btn btn-outline-secondary" id="btnDownloadCR" title="Télécharger le CR technicien original">
+                    <i class="bi bi-download me-1"></i> CR Technicien (PDF Kizeo)
+                </a>
+            </div>
+        </div>
+    </div>
+
+    {# Compteurs #}
+    <div class="row mb-4">
+        {% set equipContrat = equipments|filter(e => e.is_hors_contrat == 0)|length %}
+        {% set equipHorsContrat = equipments|filter(e => e.is_hors_contrat == 1)|length %}
+        
+        <div class="col-md-4">
+            <div class="card bg-light">
+                <div class="card-body text-center">
+                    <h2 class="display-6 mb-0 text-primary">{{ equipments|length }}</h2>
+                    <small class="text-muted">Équipements total</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-success bg-opacity-10">
+                <div class="card-body text-center">
+                    <h2 class="display-6 mb-0 text-success">{{ equipContrat }}</h2>
+                    <small class="text-muted">Au contrat</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-warning bg-opacity-10">
+                <div class="card-body text-center">
+                    <h2 class="display-6 mb-0 text-warning">{{ equipHorsContrat }}</h2>
+                    <small class="text-muted">Hors contrat</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Tableau des équipements #}
+    {% if equipments is empty %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            Aucun équipement trouvé pour cette visite ({{ visite }} {{ annee }}).
+        </div>
+    {% else %}
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <i class="bi bi-gear me-2"></i> 
+                Équipements - {{ visite }} {{ annee }}
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 5%;">#</th>
+                            <th style="width: 12%;">Numéro</th>
+                            <th style="width: 20%;">Libellé</th>
+                            <th style="width: 10%;">Marque</th>
+                            <th style="width: 8%;">État</th>
+                            <th style="width: 10%;">Statut</th>
+                            <th style="width: 25%;">Anomalies</th>
+                            <th style="width: 10%;">Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for equip in equipments %}
+                            <tr class="{{ equip.is_hors_contrat ? 'table-warning' : '' }}">
+                                <td class="text-muted">{{ loop.index }}</td>
+                                <td>
+                                    <strong>{{ equip.numero_equipement }}</strong>
+                                </td>
+                                <td>{{ equip.libelle_equipement }}</td>
+                                <td>{{ equip.marque ?: '—' }}</td>
+                                <td>
+                                    {% set etat = equip.statut_equipement|default('') %}
+                                    {% if etat == 'V' or etat == 'Vert' or etat|lower contains 'bon' %}
+                                        <span class="badge bg-success rounded-circle p-2" title="Bon état">
+                                            <i class="bi bi-check-circle"></i>
+                                        </span>
+                                    {% elseif etat == 'O' or etat == 'Orange' %}
+                                        <span class="badge bg-warning rounded-circle p-2" title="À surveiller">
+                                            <i class="bi bi-exclamation-circle"></i>
+                                        </span>
+                                    {% elseif etat == 'R' or etat == 'Rouge' %}
+                                        <span class="badge bg-danger rounded-circle p-2" title="Défaillant">
+                                            <i class="bi bi-x-circle"></i>
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small class="text-muted">{{ equip.statut_equipement ?: '—' }}</small>
+                                </td>
+                                <td>
+                                    {% if equip.anomalies %}
+                                        <small class="text-danger">{{ equip.anomalies|slice(0, 100) }}{% if equip.anomalies|length > 100 %}...{% endif %}</small>
+                                    {% else %}
+                                        <span class="text-success"><i class="bi bi-check"></i> RAS</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if equip.is_hors_contrat %}
+                                        <span class="badge bg-warning text-dark">Hors contrat</span>
+                                    {% else %}
+                                        <span class="badge bg-success">Au contrat</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block javascripts %}
+{{ parent() }}
+<script>
+    // Génération PDF (à implémenter)
+    document.getElementById('btnGeneratePdf').addEventListener('click', function() {
+        const includePhotos = document.getElementById('includePhotos').checked;
+        
+        // TODO: Implémenter la route PDF
+        alert('Génération PDF à implémenter\nAgence: {{ agencyCode }}\nClient: {{ client.id_contact }}\nAnnée: {{ annee }}\nVisite: {{ visite }}\nPhotos: ' + (includePhotos ? 'Oui' : 'Non'));
+    });
+</script>
+{% endblock %}

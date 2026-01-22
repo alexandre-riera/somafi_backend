@@ -3,14 +3,39 @@
 namespace App\Controller;
 
 use App\Entity\User;
+use App\Repository\AgencyRepository;
+use App\Service\Kizeo\KizeoClientService;
+use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 
+/**
+ * Controller principal de l'application
+ * 
+ * Gère :
+ * - Page d'accueil / sélection agence
+ * - Liste des clients par agence (via Kizeo)
+ * - Page équipements client
+ * 
+ * @author Alex - SOMAFI GROUP
+ * @version 2.0 - Session 22/01/2026
+ */
 #[IsGranted('ROLE_USER')]
 class HomeController extends AbstractController
 {
+    public function __construct(
+        private readonly AgencyRepository $agencyRepository,
+        private readonly KizeoClientService $kizeoClientService,
+        private readonly Connection $connection,
+    ) {
+    }
+
+    /**
+     * Page d'accueil - Redirection selon le profil utilisateur
+     */
     #[Route('/', name: 'app_home')]
     public function index(): Response
     {
@@ -43,18 +68,306 @@ class HomeController extends AbstractController
         return $this->render('home/index.html.twig');
     }
 
-    #[Route('/agency/{agencyCode}', name: 'app_clients_list')]
-    public function clientsList(string $agencyCode): Response
+    /**
+     * Liste des clients d'une agence
+     * 
+     * Récupère les clients depuis Kizeo Forms en temps réel
+     * et enrichit avec les coordonnées GESTAN si disponibles
+     */
+    #[Route('/agency/{agencyCode}', name: 'app_clients_list', requirements: ['agencyCode' => 'S\d+'])]
+    public function clientsList(string $agencyCode, Request $request): Response
     {
         /** @var User $user */
         $user = $this->getUser();
 
+        // Vérifier l'accès à l'agence
         if ($user && !$user->hasAccessToAgency($agencyCode)) {
-            throw $this->createAccessDeniedException('Acces non autorise a cette agence');
+            throw $this->createAccessDeniedException('Accès non autorisé à cette agence');
         }
 
-        return $this->render('clients/list.html.twig', [
+        // Récupérer l'agence
+        $agency = $this->agencyRepository->findOneBy(['code' => $agencyCode, 'isActive' => true]);
+        
+        if (!$agency) {
+            $this->addFlash('error', sprintf('Agence %s non trouvée', $agencyCode));
+            return $this->redirectToRoute('app_home');
+        }
+
+        // Paramètre de recherche
+        $search = $request->query->get('search', '');
+
+        // Récupérer les clients depuis Kizeo
+        if (!empty($search)) {
+            $clients = $this->kizeoClientService->searchClients($agencyCode, $search);
+        } else {
+            $clients = $this->kizeoClientService->getClientsByAgency($agencyCode);
+        }
+
+        // Récupérer les coordonnées GESTAN pour enrichissement
+        $contactsGestan = $this->getContactsGestan($agencyCode);
+        
+        // Enrichir les clients avec les données GESTAN
+        $clients = $this->kizeoClientService->enrichWithGestanData($clients, $contactsGestan);
+
+        // Compter les équipements par client
+        $equipmentCounts = $this->getEquipmentCountsByContact($agencyCode);
+        
+        // Ajouter le comptage aux clients
+        foreach ($clients as &$client) {
+            $idContact = $client['id_contact'];
+            $client['nb_equipements'] = $equipmentCounts[$idContact] ?? 0;
+        }
+
+        return $this->render('home/clients.html.twig', [
+            'agency' => $agency,
             'agencyCode' => $agencyCode,
+            'clients' => $clients,
+            'search' => $search,
+            'total_clients' => count($clients),
         ]);
+    }
+
+    /**
+     * Page équipements d'un client
+     * 
+     * Affiche les équipements avec filtres année/visite
+     * Par défaut : dernière visite enregistrée
+     */
+    #[Route('/agency/{agencyCode}/client/{idContact}', name: 'app_client_equipments', requirements: ['agencyCode' => 'S\d+', 'idContact' => '\d+'])]
+    public function clientEquipments(string $agencyCode, int $idContact, Request $request): Response
+    {
+        /** @var User $user */
+        $user = $this->getUser();
+
+        // Vérifier l'accès à l'agence
+        if ($user && !$user->hasAccessToAgency($agencyCode)) {
+            throw $this->createAccessDeniedException('Accès non autorisé à cette agence');
+        }
+
+        // Récupérer l'agence
+        $agency = $this->agencyRepository->findOneBy(['code' => $agencyCode, 'isActive' => true]);
+        
+        if (!$agency) {
+            $this->addFlash('error', sprintf('Agence %s non trouvée', $agencyCode));
+            return $this->redirectToRoute('app_home');
+        }
+
+        // Récupérer les infos client depuis Kizeo
+        $client = $this->kizeoClientService->getClientByIdContact($agencyCode, $idContact);
+
+        if (!$client) {
+            $this->addFlash('error', 'Client non trouvé');
+            return $this->redirectToRoute('app_clients_list', ['agencyCode' => $agencyCode]);
+        }
+
+        // Enrichir avec GESTAN
+        $contactsGestan = $this->getContactsGestan($agencyCode);
+        if (isset($contactsGestan[$idContact])) {
+            $client = array_merge($client, [
+                'adresse' => $contactsGestan[$idContact]['adressep_1'] ?? '',
+                'adresse2' => $contactsGestan[$idContact]['adressep_2'] ?? '',
+                'telephone' => $contactsGestan[$idContact]['telephone'] ?? '',
+                'email' => $contactsGestan[$idContact]['email'] ?? '',
+            ]);
+        }
+
+        // Récupérer la dernière visite
+        $lastVisit = $this->getLastVisit($agencyCode, $idContact);
+        
+        // Paramètres de filtre (par défaut : dernière visite)
+        $annee = $request->query->get('annee', $lastVisit['annee'] ?? date('Y'));
+        $visite = $request->query->get('visite', $lastVisit['visite'] ?? 'CE1');
+
+        // Récupérer les années et visites disponibles
+        $availableFilters = $this->getAvailableFilters($agencyCode, $idContact);
+
+        // Récupérer les équipements
+        $equipments = $this->getEquipmentsByVisit($agencyCode, $idContact, $annee, $visite);
+
+        return $this->render('home/equipments.html.twig', [
+            'agency' => $agency,
+            'agencyCode' => $agencyCode,
+            'client' => $client,
+            'equipments' => $equipments,
+            'annee' => $annee,
+            'visite' => $visite,
+            'available_years' => $availableFilters['years'],
+            'available_visits' => $availableFilters['visits'],
+            'last_visit' => $lastVisit,
+        ]);
+    }
+
+    // =========================================================================
+    // MÉTHODES PRIVÉES - Accès BDD
+    // =========================================================================
+
+    /**
+     * Récupère les contacts GESTAN d'une agence (table contact_sXX)
+     * 
+     * @return array<int, array> Indexé par id_contact
+     */
+    private function getContactsGestan(string $agencyCode): array
+    {
+        $tableNumber = $this->extractTableNumber($agencyCode);
+        $tableName = 'contact_s' . $tableNumber;
+
+        try {
+            $sql = "SELECT id, id_contact, raison_sociale, adressep_1, adressep_2, 
+                           cpostalp, villep, telephone, email 
+                    FROM {$tableName}";
+            
+            $results = $this->connection->fetchAllAssociative($sql);
+            
+            // Indexer par id_contact
+            $indexed = [];
+            foreach ($results as $row) {
+                if ($row['id_contact']) {
+                    $indexed[(int) $row['id_contact']] = $row;
+                }
+            }
+            
+            return $indexed;
+
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Compte les équipements par client (table equipement_sXX)
+     * 
+     * @return array<int, int> id_contact => count
+     */
+    private function getEquipmentCountsByContact(string $agencyCode): array
+    {
+        $tableNumber = $this->extractTableNumber($agencyCode);
+        $tableName = 'equipement_s' . $tableNumber;
+
+        try {
+            $sql = "SELECT id_contact, COUNT(DISTINCT numero_equipement) as nb 
+                    FROM {$tableName} 
+                    WHERE is_archive = 0 
+                    GROUP BY id_contact";
+            
+            $results = $this->connection->fetchAllAssociative($sql);
+            
+            $counts = [];
+            foreach ($results as $row) {
+                $counts[(int) $row['id_contact']] = (int) $row['nb'];
+            }
+            
+            return $counts;
+
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Récupère la dernière visite d'un client
+     * 
+     * @return array{annee: string|null, visite: string|null, date: string|null}
+     */
+    private function getLastVisit(string $agencyCode, int $idContact): array
+    {
+        $tableNumber = $this->extractTableNumber($agencyCode);
+        $tableName = 'equipement_s' . $tableNumber;
+
+        try {
+            $sql = "SELECT annee, visite, MAX(date_derniere_visite) as last_date
+                    FROM {$tableName}
+                    WHERE id_contact = :idContact AND is_archive = 0
+                    GROUP BY annee, visite
+                    ORDER BY last_date DESC
+                    LIMIT 1";
+            
+            $result = $this->connection->fetchAssociative($sql, ['idContact' => $idContact]);
+            
+            if ($result) {
+                return [
+                    'annee' => $result['annee'],
+                    'visite' => $result['visite'],
+                    'date' => $result['last_date'],
+                ];
+            }
+
+        } catch (\Exception $e) {
+        }
+
+        return ['annee' => null, 'visite' => null, 'date' => null];
+    }
+
+    /**
+     * Récupère les filtres disponibles (années et visites) pour un client
+     * 
+     * @return array{years: array<string>, visits: array<string>}
+     */
+    private function getAvailableFilters(string $agencyCode, int $idContact): array
+    {
+        $tableNumber = $this->extractTableNumber($agencyCode);
+        $tableName = 'equipement_s' . $tableNumber;
+
+        $years = [];
+        $visits = [];
+
+        try {
+            // Années disponibles
+            $sql = "SELECT DISTINCT annee FROM {$tableName} 
+                    WHERE id_contact = :idContact AND annee IS NOT NULL AND is_archive = 0
+                    ORDER BY annee DESC";
+            $results = $this->connection->fetchAllAssociative($sql, ['idContact' => $idContact]);
+            $years = array_column($results, 'annee');
+
+            // Visites disponibles
+            $sql = "SELECT DISTINCT visite FROM {$tableName} 
+                    WHERE id_contact = :idContact AND is_archive = 0
+                    ORDER BY visite";
+            $results = $this->connection->fetchAllAssociative($sql, ['idContact' => $idContact]);
+            $visits = array_column($results, 'visite');
+
+        } catch (\Exception $e) {
+        }
+
+        return [
+            'years' => $years,
+            'visits' => $visits,
+        ];
+    }
+
+    /**
+     * Récupère les équipements d'un client pour une visite/année donnée
+     * 
+     * @return array<int, array>
+     */
+    private function getEquipmentsByVisit(string $agencyCode, int $idContact, string $annee, string $visite): array
+    {
+        $tableNumber = $this->extractTableNumber($agencyCode);
+        $tableName = 'equipement_s' . $tableNumber;
+
+        try {
+            $sql = "SELECT * FROM {$tableName}
+                    WHERE id_contact = :idContact 
+                      AND annee = :annee 
+                      AND visite = :visite
+                      AND is_archive = 0
+                    ORDER BY is_hors_contrat ASC, numero_equipement ASC";
+            
+            return $this->connection->fetchAllAssociative($sql, [
+                'idContact' => $idContact,
+                'annee' => $annee,
+                'visite' => $visite,
+            ]);
+
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Extrait le numéro de table depuis le code agence (S100 -> 100)
+     */
+    private function extractTableNumber(string $agencyCode): string
+    {
+        return ltrim($agencyCode, 'Ss');
     }
 }

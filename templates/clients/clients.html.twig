@@ -1,0 +1,174 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Clients - {{ agency.nom }} ({{ agency.code }}){% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+    {# En-tête avec breadcrumb #}
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_home') }}">Accueil</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ agency.nom }}</li>
+        </ol>
+    </nav>
+
+    {# Titre de la page #}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h2 mb-1">
+                <i class="bi bi-building me-2"></i>
+                {{ agency.nom }}
+            </h1>
+            <p class="text-muted mb-0">
+                <span class="badge bg-secondary">{{ agency.code }}</span>
+                &nbsp;•&nbsp;
+                {{ total_clients }} client{{ total_clients > 1 ? 's' : '' }}
+            </p>
+        </div>
+        <a href="{{ path('app_home') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Retour
+        </a>
+    </div>
+
+    {# Barre de recherche #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" action="{{ path('app_clients_list', {agencyCode: agencyCode}) }}" class="row g-3">
+                <div class="col-md-10">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" 
+                               name="search" 
+                               class="form-control form-control-lg" 
+                               placeholder="Rechercher par nom, ville ou code postal..."
+                               value="{{ search }}"
+                               autocomplete="off">
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary btn-lg w-100">
+                        Rechercher
+                    </button>
+                </div>
+            </form>
+            {% if search %}
+                <div class="mt-2">
+                    <a href="{{ path('app_clients_list', {agencyCode: agencyCode}) }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-x-circle me-1"></i> Effacer la recherche
+                    </a>
+                    <span class="text-muted ms-2">
+                        {{ clients|length }} résultat{{ clients|length > 1 ? 's' : '' }} pour "{{ search }}"
+                    </span>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Liste des clients #}
+    {% if clients is empty %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            {% if search %}
+                Aucun client trouvé pour "{{ search }}".
+            {% else %}
+                Aucun client trouvé pour cette agence.
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0" id="clientsTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th scope="col" style="width: 35%;">
+                                <i class="bi bi-building me-1"></i> Client
+                            </th>
+                            <th scope="col" style="width: 25%;">
+                                <i class="bi bi-geo-alt me-1"></i> Localisation
+                            </th>
+                            <th scope="col" style="width: 15%;" class="text-center">
+                                <i class="bi bi-gear me-1"></i> Équipements
+                            </th>
+                            <th scope="col" style="width: 15%;" class="text-center">
+                                <i class="bi bi-diagram-3 me-1"></i> ID Société
+                            </th>
+                            <th scope="col" style="width: 10%;" class="text-center">
+                                Actions
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for client in clients %}
+                            <tr class="client-row" 
+                                data-href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: client.id_contact}) }}"
+                                style="cursor: pointer;">
+                                <td>
+                                    <div class="fw-semibold text-primary">
+                                        {{ client.raison_sociale }}
+                                    </div>
+                                    {% if client.telephone is defined and client.telephone %}
+                                        <small class="text-muted">
+                                            <i class="bi bi-telephone me-1"></i>{{ client.telephone }}
+                                        </small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div>{{ client.ville }}</div>
+                                    <small class="text-muted">{{ client.code_postal }}</small>
+                                </td>
+                                <td class="text-center">
+                                    {% if client.nb_equipements > 0 %}
+                                        <span class="badge bg-success fs-6">
+                                            {{ client.nb_equipements }}
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">0</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if client.id_societe %}
+                                        <span class="badge bg-info">
+                                            #{{ client.id_societe }}
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <a href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: client.id_contact}) }}" 
+                                       class="btn btn-sm btn-outline-primary"
+                                       title="Voir les équipements">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {# Info bas de page #}
+        <div class="text-muted text-center mt-3">
+            <small>
+                <i class="bi bi-info-circle me-1"></i>
+                Données récupérées depuis Kizeo Forms en temps réel
+            </small>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block javascripts %}
+{{ parent() }}
+<script>
+    // Rendre les lignes cliquables
+    document.querySelectorAll('.client-row').forEach(row => {
+        row.addEventListener('click', function(e) {
+            // Éviter la navigation si on clique sur un lien ou un bouton
+            if (e.target.closest('a, button')) return;
+            window.location.href = this.dataset.href;
+        });
+    });
+</script>
+{% endblock %}
