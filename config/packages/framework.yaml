@@ -1,0 +1,44 @@
+framework:
+    secret: '%env(APP_SECRET)%'
+    
+    # CSRF protection
+    csrf_protection: true
+    
+    # Sessions
+    session:
+        handler_id: null
+        cookie_secure: auto
+        cookie_samesite: lax
+        storage_factory_id: session.storage.factory.native
+
+    # HTTP cache
+    http_cache: true
+    
+    # Router
+    router:
+        utf8: true
+
+    # Validation
+    validation:
+        email_validation_mode: html5
+
+    # Assets
+    assets:
+        json_manifest_path: '%kernel.project_dir%/public/build/manifest.json'
+
+    # PHP attributes for controllers
+    handle_all_throwables: true
+
+    php_errors:
+        log: true
+
+when@dev:
+    framework:
+        profiler:
+            collect_serializer_data: true
+
+when@test:
+    framework:
+        test: true
+        session:
+            storage_factory_id: session.storage.factory.mock_file

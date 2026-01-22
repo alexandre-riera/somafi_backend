@@ -1,0 +1,10 @@
+doctrine_migrations:
+    migrations_paths:
+        'DoctrineMigrations': '%kernel.project_dir%/migrations'
+    enable_profiler: false
+    
+    # Ne pas créer de table de migration si elle existe déjà (BDD existante)
+    # check_database_platform: true
+    
+    # Préfixe des migrations
+    # organize_migrations: false

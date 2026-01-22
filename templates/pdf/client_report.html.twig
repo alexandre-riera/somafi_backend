@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Compte-Rendu {{ client.raison_sociale|default('Client') }} - {{ visite }} {{ annee }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+            line-height: 1.4;
+            color: #333;
+        }
+        
+        .page {
+            page-break-after: always;
+            padding: 20mm 15mm;
+        }
+        
+        .page:last-child {
+            page-break-after: avoid;
+        }
+        
+        /* En-tête */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #1a5276;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .logo {
+            font-size: 18pt;
+            font-weight: bold;
+            color: #1a5276;
+        }
+        
+        .report-title {
+            text-align: right;
+        }
+        
+        .report-title h1 {
+            font-size: 14pt;
+            color: #1a5276;
+        }
+        
+        .report-title p {
+            font-size: 9pt;
+            color: #666;
+        }
+        
+        /* Info client */
+        .client-info {
+            background-color: #f5f5f5;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-left: 4px solid #1a5276;
+        }
+        
+        .client-info h2 {
+            font-size: 14pt;
+            margin-bottom: 10px;
+        }
+        
+        .client-info p {
+            margin: 3px 0;
+        }
+        
+        /* Statistiques */
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .stat-box {
+            text-align: center;
+            padding: 10px 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            min-width: 100px;
+        }
+        
+        .stat-box .number {
+            font-size: 24pt;
+            font-weight: bold;
+        }
+        
+        .stat-box .label {
+            font-size: 8pt;
+            color: #666;
+        }
+        
+        .stat-box.green { border-color: #28a745; }
+        .stat-box.green .number { color: #28a745; }
+        
+        .stat-box.orange { border-color: #fd7e14; }
+        .stat-box.orange .number { color: #fd7e14; }
+        
+        .stat-box.red { border-color: #dc3545; }
+        .stat-box.red .number { color: #dc3545; }
+        
+        /* Tableau */
+        .section-title {
+            font-size: 12pt;
+            color: #1a5276;
+            margin: 20px 0 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #1a5276;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+            font-size: 8pt;
+        }
+        
+        th {
+            background-color: #1a5276;
+            color: white;
+            padding: 8px 5px;
+            text-align: left;
+            font-weight: normal;
+        }
+        
+        td {
+            padding: 6px 5px;
+            border-bottom: 1px solid #ddd;
+            vertical-align: top;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        /* Pastilles statut */
+        .status-badge {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            font-weight: bold;
+            font-size: 10pt;
+        }
+        
+        .status-a { background-color: #28a745; }
+        .status-b { background-color: #fd7e14; }
+        .status-c { background-color: #dc3545; }
+        .status-d, .status-e, .status-f, .status-g { background-color: #343a40; }
+        
+        /* Anomalies */
+        .anomalies {
+            color: #dc3545;
+            font-size: 7pt;
+        }
+        
+        /* Photo équipement */
+        .equipment-photo {
+            max-width: 80px;
+            max-height: 60px;
+        }
+        
+        /* Pied de page */
+        .footer {
+            position: fixed;
+            bottom: 10mm;
+            left: 15mm;
+            right: 15mm;
+            font-size: 7pt;
+            color: #666;
+            text-align: center;
+            border-top: 1px solid #ddd;
+            padding-top: 5px;
+        }
+        
+        .page-number:after {
+            content: counter(page);
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <!-- En-tête -->
+        <div class="header">
+            <div class="logo">SOMAFI GROUP</div>
+            <div class="report-title">
+                <h1>COMPTE-RENDU D'ENTRETIEN</h1>
+                <p>Visite {{ visite }} - Année {{ annee }}</p>
+                <p>Généré le {{ generated_at|date('d/m/Y à H:i') }}</p>
+            </div>
+        </div>
+        
+        <!-- Info client -->
+        <div class="client-info">
+            <h2>{{ client.raison_sociale|default('Client') }}</h2>
+            <p><strong>Adresse :</strong> {{ client.adresse|default('') }}</p>
+            <p><strong>CP / Ville :</strong> {{ client.code_postal|default('') }} {{ client.ville|default('') }}</p>
+            <p><strong>Agence :</strong> {{ agency_code }}</p>
+        </div>
+        
+        <!-- Statistiques -->
+        <div class="stats">
+            <div class="stat-box green">
+                <div class="number">{{ status_counts['A']|default(0) }}</div>
+                <div class="label">Bon état (A)</div>
+            </div>
+            <div class="stat-box orange">
+                <div class="number">{{ status_counts['B']|default(0) }}</div>
+                <div class="label">Préventifs (B)</div>
+            </div>
+            <div class="stat-box red">
+                <div class="number">{{ status_counts['C']|default(0) }}</div>
+                <div class="label">Curatifs (C)</div>
+            </div>
+            <div class="stat-box">
+                <div class="number">{{ total_contract }}</div>
+                <div class="label">Au contrat</div>
+            </div>
+            <div class="stat-box">
+                <div class="number">{{ total_offcontract }}</div>
+                <div class="label">Hors contrat</div>
+            </div>
+        </div>
+        
+        <!-- Équipements au contrat -->
+        <h3 class="section-title">Équipements au contrat ({{ total_contract }})</h3>
+        
+        {% if contract_equipments|length > 0 %}
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 8%">N°</th>
+                    <th style="width: 20%">Libellé</th>
+                    <th style="width: 10%">Marque</th>
+                    <th style="width: 12%">Repère</th>
+                    <th style="width: 10%">Date visite</th>
+                    <th style="width: 5%">État</th>
+                    <th style="width: 35%">Anomalies</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for equip in contract_equipments %}
+                <tr>
+                    <td>{{ equip.numeroEquipement }}</td>
+                    <td>{{ equip.libelleEquipement }}</td>
+                    <td>{{ equip.marque }}</td>
+                    <td>{{ equip.repereSiteClient }}</td>
+                    <td>{{ equip.dateDerniereVisite ? equip.dateDerniereVisite|date('d/m/Y') : '-' }}</td>
+                    <td>
+                        <span class="status-badge status-{{ equip.statutEquipement|lower }}">
+                            {{ equip.statutEquipement }}
+                        </span>
+                    </td>
+                    <td class="anomalies">{{ equip.anomalies }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p><em>Aucun équipement au contrat pour cette visite.</em></p>
+        {% endif %}
+        
+        <!-- Équipements hors contrat -->
+        {% if total_offcontract > 0 %}
+        <h3 class="section-title">Équipements hors contrat ({{ total_offcontract }})</h3>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 8%">N°</th>
+                    <th style="width: 20%">Libellé</th>
+                    <th style="width: 10%">Marque</th>
+                    <th style="width: 12%">Repère</th>
+                    <th style="width: 10%">Date visite</th>
+                    <th style="width: 5%">État</th>
+                    <th style="width: 35%">Anomalies</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for equip in offcontract_equipments %}
+                <tr>
+                    <td>{{ equip.numeroEquipement }}</td>
+                    <td>{{ equip.libelleEquipement }}</td>
+                    <td>{{ equip.marque }}</td>
+                    <td>{{ equip.repereSiteClient }}</td>
+                    <td>{{ equip.dateDerniereVisite ? equip.dateDerniereVisite|date('d/m/Y') : '-' }}</td>
+                    <td>
+                        <span class="status-badge status-{{ equip.statutEquipement|lower }}">
+                            {{ equip.statutEquipement }}
+                        </span>
+                    </td>
+                    <td class="anomalies">{{ equip.anomalies }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+    
+    <!-- Pied de page -->
+    <div class="footer">
+        SOMAFI GROUP - Compte-rendu d'entretien {{ visite }} {{ annee }} - {{ client.raison_sociale|default('Client') }}
+        <span style="float: right;">Page <span class="page-number"></span></span>
+    </div>
+</body>
+</html>

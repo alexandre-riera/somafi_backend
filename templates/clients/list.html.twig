@@ -1,0 +1,38 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Clients {{ agencyCode }} - SOMAFI{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ path('app_home') }}">Accueil</a></li>
+                    <li class="breadcrumb-item active">{{ agencyCode }}</li>
+                </ol>
+            </nav>
+            
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="bi bi-people"></i> Clients - Agence {{ agencyCode }}</h2>
+                <div class="input-group" style="max-width: 300px;">
+                    <input type="text" class="form-control" placeholder="Rechercher..." id="searchClient">
+                    <button class="btn btn-outline-secondary" type="button">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-body">
+                    <p class="text-muted text-center py-5">
+                        <i class="bi bi-info-circle fs-1 d-block mb-3"></i>
+                        La liste des clients sera chargée depuis la base de données.<br>
+                        Implémentation en Phase 3.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

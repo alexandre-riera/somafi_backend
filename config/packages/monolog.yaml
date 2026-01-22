@@ -1,0 +1,78 @@
+monolog:
+    channels:
+        - kizeo      # Logs API Kizeo
+        - cron       # Logs des tâches CRON
+        - equipment  # Logs traitement équipements
+        - pdf        # Logs génération PDF
+
+when@dev:
+    monolog:
+        handlers:
+            main:
+                type: stream
+                path: "%kernel.logs_dir%/%kernel.environment%.log"
+                level: debug
+                channels: ["!event"]
+            console:
+                type: console
+                process_psr_3_messages: false
+                channels: ["!event", "!doctrine", "!console"]
+            # Logs Kizeo séparés pour debug
+            kizeo:
+                type: stream
+                path: "%kernel.logs_dir%/kizeo.log"
+                level: debug
+                channels: [kizeo]
+            # Logs CRON séparés
+            cron:
+                type: stream
+                path: "%kernel.logs_dir%/cron.log"
+                level: info
+                channels: [cron]
+
+when@test:
+    monolog:
+        handlers:
+            main:
+                type: fingers_crossed
+                action_level: error
+                handler: nested
+                excluded_http_codes: [404, 405]
+                channels: ["!event"]
+            nested:
+                type: stream
+                path: "%kernel.logs_dir%/%kernel.environment%.log"
+                level: debug
+
+when@prod:
+    monolog:
+        handlers:
+            main:
+                type: fingers_crossed
+                action_level: error
+                handler: nested
+                excluded_http_codes: [404, 405]
+                buffer_size: 50
+            nested:
+                type: stream
+                path: "%kernel.logs_dir%/%kernel.environment%.log"
+                level: info
+                formatter: monolog.formatter.json
+            # Logs Kizeo en production
+            kizeo:
+                type: rotating_file
+                path: "%kernel.logs_dir%/kizeo.log"
+                level: info
+                max_files: 10
+                channels: [kizeo]
+            # Logs CRON en production
+            cron:
+                type: rotating_file
+                path: "%kernel.logs_dir%/cron.log"
+                level: info
+                max_files: 10
+                channels: [cron]
+            console:
+                type: console
+                process_psr_3_messages: false
+                channels: ["!event", "!doctrine"]

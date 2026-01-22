@@ -1,0 +1,33 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Sélection agence - SOMAFI{% endblock %}
+
+{% block body %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-building"></i> Sélectionnez une agence</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        {% for agencyCode in agencies %}
+                        <div class="col-md-4">
+                            <a href="{{ path('app_clients_list', {agencyCode: agencyCode}) }}" class="text-decoration-none">
+                                <div class="card h-100 border-primary">
+                                    <div class="card-body text-center">
+                                        <i class="bi bi-geo-alt-fill text-primary fs-1"></i>
+                                        <h5 class="mt-2">{{ agencyCode }}</h5>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

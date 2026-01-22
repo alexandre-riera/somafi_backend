@@ -1,0 +1,75 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Connexion - SOMAFI{% endblock %}
+
+{% block body %}
+<div class="container">
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-5">
+            <div class="card shadow">
+                <div class="card-header bg-white text-center py-4">
+                    <h4 class="mb-0">
+                        <i class="bi bi-building text-primary"></i>
+                        SOMAFI GROUP
+                    </h4>
+                    <p class="text-muted mb-0">Gestion de Parc Équipements</p>
+                </div>
+                
+                <div class="card-body p-4">
+                    {% if error %}
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            {{ error.messageKey|trans(error.messageData, 'security') }}
+                        </div>
+                    {% endif %}
+
+                    <form method="post">
+                        <div class="mb-3">
+                            <label for="inputEmail" class="form-label">Email</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                                <input type="email" 
+                                       class="form-control" 
+                                       id="inputEmail" 
+                                       name="_username" 
+                                       value="{{ last_username }}" 
+                                       autocomplete="email"
+                                       required 
+                                       autofocus>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="inputPassword" class="form-label">Mot de passe</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                                <input type="password" 
+                                       class="form-control" 
+                                       id="inputPassword" 
+                                       name="_password"
+                                       autocomplete="current-password"
+                                       required>
+                            </div>
+                        </div>
+
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="rememberMe" name="_remember_me">
+                            <label class="form-check-label" for="rememberMe">Se souvenir de moi</label>
+                        </div>
+
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
+
+                        <button class="btn btn-somafi w-100 py-2" type="submit">
+                            <i class="bi bi-box-arrow-in-right"></i> Se connecter
+                        </button>
+                    </form>
+                </div>
+                
+                <div class="card-footer bg-white text-center text-muted py-3">
+                    <small>&copy; {{ "now"|date("Y") }} SOMAFI GROUP</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

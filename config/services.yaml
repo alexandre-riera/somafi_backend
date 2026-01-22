@@ -1,0 +1,90 @@
+# SOMAFI GROUP - Configuration des services
+# This file is the entry point to configure your own services.
+
+parameters:
+    router.request_context.host: 'www.somafi-group.fr'
+    router.request_context.scheme: 'https'
+    router.request_context.base_url: '/somafi-backend/public'
+    asset.request_context.base_path: '/somafi-backend/public'
+    # Paramètres API Kizeo
+    kizeo.api_url: '%env(KIZEO_API_URL)%'
+    kizeo.api_token: '%env(KIZEO_API_TOKEN)%'
+    
+    # Chemins de stockage
+    storage.path: '%env(STORAGE_PATH)%'
+    storage.pdf_technician_path: '%env(PDF_TECHNICIAN_PATH)%'
+    
+    # Liste des agences
+    app.agencies:
+        - { code: 'S10', name: 'Group' }
+        - { code: 'S40', name: 'Saint-Étienne' }
+        - { code: 'S50', name: 'Grenoble' }
+        - { code: 'S60', name: 'Lyon' }
+        - { code: 'S70', name: 'Bordeaux' }
+        - { code: 'S80', name: 'Paris Nord' }
+        - { code: 'S100', name: 'Montpellier' }
+        - { code: 'S120', name: 'Hauts de France' }
+        - { code: 'S130', name: 'Toulouse' }
+        - { code: 'S140', name: 'SMP' }
+        - { code: 'S150', name: 'SOGEFI' }
+        - { code: 'S160', name: 'Rouen' }
+        - { code: 'S170', name: 'Rennes' }
+    
+    # Mapping agence -> form_id Kizeo (à compléter)
+    app.kizeo_form_ids:
+        S10: null
+        S40: null
+        S50: null
+        S60: null
+        S70: null
+        S80: null
+        S100: 1053175
+        S120: null
+        S130: null
+        S140: null
+        S150: null
+        S160: null
+        S170: null
+
+services:
+    # Default configuration for services in this file
+    _defaults:
+        autowire: true      # Automatically injects dependencies in your services.
+        autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    # Makes classes in src/ available to be used as services
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/DependencyInjection/'
+            - '../src/Entity/'
+            - '../src/Kernel.php'
+
+    # ===== SERVICES KIZEO =====
+    App\Service\Kizeo\KizeoApiService:
+        arguments:
+            $apiUrl: '%kizeo.api_url%'
+            $apiToken: '%kizeo.api_token%'
+
+    App\Service\Kizeo\KizeoFormProcessor:
+        arguments:
+            $kizeoFormIds: '%app.kizeo_form_ids%'
+
+    App\Service\Kizeo\KizeoPdfDownloader:
+        arguments:
+            $storagePath: '%storage.pdf_technician_path%'
+
+    # ===== SERVICES EQUIPMENT =====
+    App\Service\Equipment\EquipmentFactory:
+        arguments:
+            $agencies: '%app.agencies%'
+
+    # ===== SERVICES PHOTO =====
+    App\Service\Photo\PhotoStorageService:
+        arguments:
+            $storagePath: '%storage.path%'
+
+    # ===== SERVICES PDF =====
+    App\Service\Pdf\ClientReportGenerator:
+        arguments:
+            $storagePath: '%storage.path%'

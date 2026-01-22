@@ -1,0 +1,76 @@
+# SOMAFI GROUP - Configuration Sécurité
+# 5 rôles : ADMIN, ADMIN_AGENCE, USER_AGENCE, CLIENT_CC, USER
+
+security:
+    # Password hashers
+    password_hashers:
+        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
+        App\Entity\User:
+            algorithm: auto
+
+    # User providers
+    providers:
+        app_user_provider:
+            entity:
+                class: App\Entity\User
+                property: email
+
+    # Firewalls
+    firewalls:
+        dev:
+            pattern: ^/(_(profiler|wdt)|css|images|js)/
+            security: false
+            
+        main:
+            lazy: true
+            provider: app_user_provider
+            
+            # Login form
+            form_login:
+                login_path: app_login
+                check_path: app_login
+                default_target_path: app_home
+                enable_csrf: true
+            
+            # Logout
+            logout:
+                path: app_logout
+                target: app_login
+            
+            # Remember me
+            remember_me:
+                secret: '%kernel.secret%'
+                lifetime: 604800 # 1 semaine
+                path: /
+
+    # Hiérarchie des rôles
+    role_hierarchy:
+        ROLE_ADMIN: [ROLE_ADMIN_AGENCE, ROLE_USER]
+        ROLE_ADMIN_AGENCE: [ROLE_USER_AGENCE, ROLE_USER]
+        ROLE_USER_AGENCE: [ROLE_USER]
+        ROLE_CLIENT_CC: [ROLE_USER]
+        # Rôles dynamiques Contrat Cadre (ex: KUEHNE_ADMIN, XPO_USER)
+        # Gérés par le Voter ContratCadreVoter
+
+    # Access control
+    access_control:
+        # Zone d'authentification
+        - { path: ^/login, roles: PUBLIC_ACCESS }
+        - { path: ^/logout, roles: PUBLIC_ACCESS }
+        
+        # API endpoints (pour les CRON)
+        - { path: ^/api/maintenance, roles: PUBLIC_ACCESS }  # Protégé par token
+        - { path: ^/api/cron, roles: PUBLIC_ACCESS }         # Protégé par token
+        
+        # Administration
+        - { path: ^/admin/users, roles: ROLE_ADMIN }
+        - { path: ^/admin, roles: ROLE_ADMIN_AGENCE }
+        
+        # Application principale
+        - { path: ^/, roles: ROLE_USER }
+
+when@test:
+    security:
+        password_hashers:
+            Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface:
+                algorithm: plaintext
