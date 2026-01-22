@@ -17,52 +17,91 @@ class PhotoRepository extends ServiceEntityRepository
     }
 
     /**
-     * Trouve les photos d'un contact pour une visite
-     * 
-     * @return Photo[]
+     * Trouve les photos d'un équipement par son code
      */
-    public function findByContactVisiteAnnee(int $idContact, string $visite, string $annee): array
+    public function findByEquipmentCode(string $codeEquipement): ?Photo
     {
         return $this->createQueryBuilder('p')
-            ->andWhere('p.idContact = :idContact')
-            ->andWhere('p.visite = :visite')
-            ->andWhere('p.annee = :annee')
-            ->setParameter('idContact', $idContact)
-            ->setParameter('visite', $visite)
-            ->setParameter('annee', $annee)
-            ->getQuery()
-            ->getResult();
-    }
-
-    /**
-     * Trouve la photo d'un équipement spécifique
-     */
-    public function findByEquipement(int $idContact, string $numeroEquipement, string $visite, string $annee): ?Photo
-    {
-        return $this->createQueryBuilder('p')
-            ->andWhere('p.idContact = :idContact')
-            ->andWhere('p.numeroEquipement = :numero')
-            ->andWhere('p.visite = :visite')
-            ->andWhere('p.annee = :annee')
-            ->setParameter('idContact', $idContact)
-            ->setParameter('numero', $numeroEquipement)
-            ->setParameter('visite', $visite)
-            ->setParameter('annee', $annee)
+            ->andWhere('p.code_equipement = :code')
+            ->setParameter('code', $codeEquipement)
             ->getQuery()
             ->getOneOrNullResult();
     }
 
     /**
-     * Trouve les photos non téléchargées (pour CRON)
-     * 
-     * @return Photo[]
+     * Trouve toutes les photos d'un client pour une visite donnée
      */
-    public function findNotDownloaded(int $limit = 100): array
+    public function findByContactAndVisite(string $idContact, string $visite, string $annee): array
     {
         return $this->createQueryBuilder('p')
-            ->andWhere('p.isDownloaded = false')
-            ->andWhere('p.kizeoMediaName IS NOT NULL')
-            ->setMaxResults($limit)
+            ->andWhere('p.id_contact = :idContact')
+            ->andWhere('p.visite = :visite')
+            ->andWhere('p.annee = :annee')
+            ->setParameter('idContact', $idContact)
+            ->setParameter('visite', $visite)
+            ->setParameter('annee', $annee)
+            ->orderBy('p.code_equipement', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Trouve les photos par form_id et data_id Kizeo (pour déduplication)
+     */
+    public function findByKizeoIds(string $formId, string $dataId): array
+    {
+        return $this->createQueryBuilder('p')
+            ->andWhere('p.form_id = :formId')
+            ->andWhere('p.data_id = :dataId')
+            ->setParameter('formId', $formId)
+            ->setParameter('dataId', $dataId)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Vérifie si une photo existe déjà pour ce form/data/equipment
+     */
+    public function existsByKizeoKey(string $formId, string $dataId, string $equipmentId): bool
+    {
+        $count = $this->createQueryBuilder('p')
+            ->select('COUNT(p.id)')
+            ->andWhere('p.form_id = :formId')
+            ->andWhere('p.data_id = :dataId')
+            ->andWhere('p.equipment_id = :equipmentId')
+            ->setParameter('formId', $formId)
+            ->setParameter('dataId', $dataId)
+            ->setParameter('equipmentId', $equipmentId)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        return $count > 0;
+    }
+
+    /**
+     * Compte les photos par agence
+     */
+    public function countByAgence(string $codeAgence): int
+    {
+        return $this->createQueryBuilder('p')
+            ->select('COUNT(p.id)')
+            ->andWhere('p.code_agence = :code')
+            ->setParameter('code', $codeAgence)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /**
+     * Trouve toutes les photos d'un client (tous les visites confondues)
+     */
+    public function findAllByContact(string $idContact): array
+    {
+        return $this->createQueryBuilder('p')
+            ->andWhere('p.id_contact = :idContact')
+            ->setParameter('idContact', $idContact)
+            ->orderBy('p.annee', 'DESC')
+            ->addOrderBy('p.visite', 'DESC')
+            ->addOrderBy('p.code_equipement', 'ASC')
             ->getQuery()
             ->getResult();
     }
