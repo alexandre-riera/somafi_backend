@@ -203,7 +203,7 @@
                                 <td>{{ equip.marque ?: '—' }}</td>
                                 <td>
                                     {% set etat = equip.statut_equipement|default('') %}
-                                    {% if etat == 'V' or etat == 'Vert' or etat|lower contains 'bon' %}
+                                    {% if etat == 'V' or etat == 'Vert' or 'bon' in etat|lower %}
                                         <span class="badge bg-success rounded-circle p-2" title="Bon état">
                                             <i class="bi bi-check-circle"></i>
                                         </span>

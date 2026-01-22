@@ -43,14 +43,14 @@ class KizeoClientService
     {
         $agency = $this->agencyRepository->findOneBy(['code' => $agencyCode]);
         
-        if (!$agency || !$agency->getKizeoListId()) {
-            $this->kizeoLogger->warning('Agence non trouvée ou sans kizeo_list_id', [
+        if (!$agency || !$agency->getKizeoListClientsId()) {
+            $this->kizeoLogger->warning('Agence non trouvée ou sans kizeo_list_clients_id', [
                 'agency_code' => $agencyCode,
             ]);
             return [];
         }
 
-        $listId = $agency->getKizeoListId();
+        $listId = $agency->getKizeoListClientsId();
         
         try {
             $response = $this->kizeoApi->getList($listId);

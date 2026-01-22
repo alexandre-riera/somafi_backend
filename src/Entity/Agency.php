@@ -34,16 +34,18 @@ class Agency
     private ?int $kizeoFormId = null;
 
     /**
-     * ID de la liste interne Kizeo (équipements)
+     * ID de la liste Kizeo des CLIENTS de cette agence
+     * Format: "NOM|CP|VILLE|ID_CONTACT|CODE_AGENCE|ID_SOCIETE"
      */
     #[ORM\Column(nullable: true)]
-    private ?int $kizeoListId = null;
+    private ?int $kizeoListClientsId = null;
 
     /**
-     * ID de la liste externe Kizeo
+     * ID de la liste Kizeo des ÉQUIPEMENTS de cette agence
+     * Format: "CLIENT\\VISITE\\NUM_EQUIP|LIBELLE|...|ID_CONTACT|ID_SOCIETE|CODE_AGENCE"
      */
     #[ORM\Column(nullable: true)]
-    private ?int $kizeoExternalListId = null;
+    private ?int $kizeoListEquipmentsId = null;
 
     #[ORM\Column(type: Types::BOOLEAN)]
     private bool $isActive = true;
@@ -101,25 +103,25 @@ class Agency
         return $this;
     }
 
-    public function getKizeoListId(): ?int
+    public function getKizeoListClientsId(): ?int
     {
-        return $this->kizeoListId;
+        return $this->kizeoListClientsId;
     }
 
-    public function setKizeoListId(?int $kizeoListId): static
+    public function setKizeoListClientsId(?int $kizeoListClientsId): static
     {
-        $this->kizeoListId = $kizeoListId;
+        $this->kizeoListClientsId = $kizeoListClientsId;
         return $this;
     }
 
-    public function getKizeoExternalListId(): ?int
+    public function getKizeoListEquipmentsId(): ?int
     {
-        return $this->kizeoExternalListId;
+        return $this->kizeoListEquipmentsId;
     }
 
-    public function setKizeoExternalListId(?int $kizeoExternalListId): static
+    public function setKizeoListEquipmentsId(?int $kizeoListEquipmentsId): static
     {
-        $this->kizeoExternalListId = $kizeoExternalListId;
+        $this->kizeoListEquipmentsId = $kizeoListEquipmentsId;
         return $this;
     }
 
