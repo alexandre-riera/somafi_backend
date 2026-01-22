@@ -11,12 +11,16 @@ doctrine:
         profiling_collect_backtrace: '%kernel.debug%'
 
     orm:
-        auto_generate_proxy_classes: true
-        enable_lazy_ghost_objects: true
-        report_fields_where_declared: true
+        # Ces 3 options sont supprimées/dépréciées dans DoctrineBundle 3.2 :
+        # auto_generate_proxy_classes: true  <- SUPPRIMER
+        # enable_lazy_ghost_objects: true    <- SUPPRIMER (toujours actif maintenant)
+        # report_fields_where_declared: true <- SUPPRIMER
+        
         validate_xml_mapping: true
         naming_strategy: doctrine.orm.naming_strategy.underscore_number_aware
         auto_mapping: true
+        controller_resolver:
+            auto_mapping: false
         
         mappings:
             App:
@@ -26,15 +30,9 @@ doctrine:
                 prefix: 'App\Entity'
                 alias: App
 
-        # DQL custom functions si nécessaire
         dql:
             string_functions:
                 JSON_EXTRACT: App\Doctrine\JsonExtract
-
-when@dev:
-    doctrine:
-        orm:
-            auto_generate_proxy_classes: true
 
 when@test:
     doctrine:
@@ -44,7 +42,6 @@ when@test:
 when@prod:
     doctrine:
         orm:
-            auto_generate_proxy_classes: false
             proxy_dir: '%kernel.build_dir%/doctrine/orm/Proxies'
             query_cache_driver:
                 type: pool
