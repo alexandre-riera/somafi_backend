@@ -24,7 +24,7 @@ framework:
 
     # Assets
     assets:
-        json_manifest_path: '%kernel.project_dir%/public/build/manifest.json'
+        ~
 
     # PHP attributes for controllers
     handle_all_throwables: true
