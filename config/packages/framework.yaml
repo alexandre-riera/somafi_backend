@@ -17,6 +17,10 @@ framework:
     # Router
     router:
         utf8: true
+        request_context:
+            base_url: '/somafi-backend/public'
+            host: 'www.somafi-group.fr'
+            scheme: 'https'
 
     # Validation
     validation:
