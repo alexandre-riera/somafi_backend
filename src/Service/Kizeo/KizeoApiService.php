@@ -319,7 +319,7 @@ class KizeoApiService
     /**
      * Récupère une liste Kizeo (clients ou équipements)
      * 
-     * @return array<mixed>
+     * @return array<mixed> Structure complète: ['list' => ['items' => [...]]]
      */
     public function getList(int $listId): array
     {
@@ -327,7 +327,7 @@ class KizeoApiService
         
         try {
             $response = $this->request('GET', $endpoint);
-            return $response['list']['items'] ?? [];
+            return $response; // Retourne la structure complète pour KizeoClientService
             
         } catch (\Exception $e) {
             $this->kizeoLogger->error('Erreur récupération liste', [
