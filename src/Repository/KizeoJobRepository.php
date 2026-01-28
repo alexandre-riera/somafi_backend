@@ -348,6 +348,37 @@ class KizeoJobRepository extends ServiceEntityRepository
     }
 
     /**
+     * Statistiques par type ET agence
+     * 
+     * @return array{pending: int, processing: int, done: int, failed: int}
+     */
+    public function getStatsByTypeAndAgency(string $jobType, string $agencyCode): array
+    {
+        $results = $this->createQueryBuilder('j')
+            ->select('j.status, COUNT(j.id) as count')
+            ->where('j.jobType = :type')
+            ->andWhere('j.agencyCode = :agency')
+            ->setParameter('type', $jobType)
+            ->setParameter('agency', $agencyCode)
+            ->groupBy('j.status')
+            ->getQuery()
+            ->getResult();
+
+        $stats = [
+            'pending' => 0,
+            'processing' => 0,
+            'done' => 0,
+            'failed' => 0,
+        ];
+
+        foreach ($results as $row) {
+            $stats[$row['status']] = (int) $row['count'];
+        }
+
+        return $stats;
+    }
+
+    /**
      * Trouve les jobs en échec récents (pour alertes)
      * 
      * @return KizeoJob[]
