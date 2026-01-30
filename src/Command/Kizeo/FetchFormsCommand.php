@@ -32,7 +32,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   php bin/console app:kizeo:fetch-forms -v                 # Verbose
  * 
  * Fréquence CRON recommandée: Toutes les 2 heures
- * 0 */2 * * * /usr/bin/php /path/to/project/bin/console app:kizeo:fetch-forms >> /path/to/logs/kizeo-fetch.log 2>&1
+ *  /usr/bin/php /path/to/project/bin/console app:kizeo:fetch-forms >> /path/to/logs/kizeo-fetch.log 2>&1
  */
 #[AsCommand(
     name: 'app:kizeo:fetch-forms',
@@ -324,9 +324,11 @@ class FetchFormsCommand extends Command
 
         try {
             // 1. EXTRACTION : Parser le JSON → DTO
-            $extractedData = $this->formDataExtractor->extract($formId, $formData);
+            // ✅ CORRECTION : Ordre des paramètres (array $formData, int $formId)
+            $extractedData = $this->formDataExtractor->extract($formData, $formId);
 
-            if (!$extractedData->getIdContact()) {
+            // ✅ CORRECTION : Utiliser les propriétés readonly, pas les getters
+            if (!$extractedData->idContact) {
                 $this->kizeoLogger->warning('CR sans id_contact', [
                     'form_id' => $formId,
                     'data_id' => $dataId,
@@ -336,24 +338,38 @@ class FetchFormsCommand extends Command
             }
 
             if ($isVerbose) {
+                // ✅ CORRECTION : Propriétés readonly + déterminer la visite depuis les équipements
+                $visite = $this->determineVisiteFromExtractedData($extractedData);
                 $io->text(sprintf(
                     '      📄 CR #%d - Client: %s (ID: %d) - %s',
                     $dataId,
-                    $extractedData->getRaisonSociale() ?? 'N/A',
-                    $extractedData->getIdContact(),
-                    $extractedData->getVisite() ?? 'N/A'
+                    $extractedData->raisonSociale ?? 'N/A',
+                    $extractedData->idContact,
+                    $visite
                 ));
             }
 
             // 2. PERSISTANCE ÉQUIPEMENTS : Contrat + Hors contrat
+            $generatedNumbers = []; // Pour les numéros générés hors contrat
+            
             if (!$dryRun) {
-                $persistResult = $this->equipmentPersister->persistAll($agencyCode, $extractedData);
-                $stats['equipments_created'] = $persistResult['created'];
-                $stats['equipments_skipped'] = $persistResult['skipped'];
+                // ✅ CORRECTION : La méthode s'appelle persist() pas persistAll()
+                // Signature : persist(ExtractedFormData $formData, string $agencyCode, int $formId, int $dataId)
+                $persistResult = $this->equipmentPersister->persist(
+                    $extractedData,
+                    $agencyCode,
+                    $formId,
+                    (int) $dataId
+                );
+                
+                $stats['equipments_created'] = $persistResult['inserted_contract'] + $persistResult['inserted_offcontract'];
+                $stats['equipments_skipped'] = $persistResult['skipped_contract'] + $persistResult['skipped_offcontract'];
+                $generatedNumbers = $persistResult['generated_numbers'];
             } else {
                 // En dry-run, compter ce qui serait créé
-                $stats['equipments_created'] = count($extractedData->getContractEquipments()) 
-                    + count($extractedData->getOffContractEquipments());
+                // ✅ CORRECTION : Propriétés readonly, pas getters
+                $stats['equipments_created'] = count($extractedData->contractEquipments) 
+                    + count($extractedData->offContractEquipments);
             }
 
             if ($isVerbose) {
@@ -366,11 +382,14 @@ class FetchFormsCommand extends Command
 
             // 3. CRÉATION JOBS : PDF + Photos
             if (!$dryRun) {
-                $jobsCreated = $this->jobCreator->createJobsForForm($agencyCode, $extractedData);
-                $stats['jobs_created'] = $jobsCreated;
+                // ✅ CORRECTION : La méthode s'appelle createJobs() pas createJobsForForm()
+                // Signature : createJobs(ExtractedFormData $formData, string $agencyCode, array $generatedNumbers = [])
+                $jobsResult = $this->jobCreator->createJobs($extractedData, $agencyCode, $generatedNumbers);
+                $stats['jobs_created'] = ($jobsResult['pdf_created'] ? 1 : 0) + $jobsResult['photos_created'];
             } else {
                 // En dry-run, compter : 1 PDF + N photos
-                $stats['jobs_created'] = 1 + count($extractedData->getMedias());
+                // ✅ CORRECTION : Propriété readonly medias
+                $stats['jobs_created'] = 1 + count($extractedData->medias);
             }
 
             if ($isVerbose) {
@@ -392,7 +411,7 @@ class FetchFormsCommand extends Command
                 'agency' => $agencyCode,
                 'form_id' => $formId,
                 'data_id' => $dataId,
-                'id_contact' => $extractedData->getIdContact(),
+                'id_contact' => $extractedData->idContact,
                 'equipments_created' => $stats['equipments_created'],
                 'jobs_created' => $stats['jobs_created'],
             ]);
@@ -413,6 +432,24 @@ class FetchFormsCommand extends Command
         }
 
         return $stats;
+    }
+
+    /**
+     * Détermine la visite principale depuis les données extraites
+     * 
+     * @param \App\DTO\Kizeo\ExtractedFormData $extractedData
+     */
+    private function determineVisiteFromExtractedData($extractedData): string
+    {
+        // Chercher dans les équipements au contrat
+        foreach ($extractedData->contractEquipments as $equipment) {
+            if ($equipment->hasValidVisite()) {
+                return $equipment->getNormalizedVisite();
+            }
+        }
+
+        // Défaut
+        return 'CE1';
     }
 
     /**
