@@ -371,7 +371,7 @@ class KizeoApiService
     }
 
     // =========================================================================
-    // UTILITAIRES
+    // UTILITAIRES - FORMULAIRES
     // =========================================================================
 
     /**
@@ -392,6 +392,95 @@ class KizeoApiService
             return [];
         }
     }
+
+    /**
+     * Récupère uniquement les formulaires de MAINTENANCE
+     * 
+     * Filtre les formulaires par la propriété "class" = "MAINTENANCE"
+     * Ce sont les formulaires de visite technicien des agences (V4/V5).
+     * 
+     * @return array<mixed> Liste des formulaires de maintenance avec leur id, name, class
+     */
+    public function getMaintenanceForms(): array
+    {
+        $allForms = $this->getAllForms();
+        
+        $maintenanceForms = array_filter($allForms, function (array $form): bool {
+            return isset($form['class']) && strtoupper($form['class']) === 'MAINTENANCE';
+        });
+
+        $this->kizeoLogger->info('Formulaires MAINTENANCE récupérés', [
+            'total_forms' => count($allForms),
+            'maintenance_forms' => count($maintenanceForms),
+        ]);
+
+        return array_values($maintenanceForms); // Reset array keys
+    }
+
+    /**
+     * Récupère les formulaires par classe
+     * 
+     * @param string $class Nom de la classe (MAINTENANCE, INTERVENTION, etc.)
+     * @return array<mixed>
+     */
+    public function getFormsByClass(string $class): array
+    {
+        $allForms = $this->getAllForms();
+        
+        $filteredForms = array_filter($allForms, function (array $form) use ($class): bool {
+            return isset($form['class']) && strtoupper($form['class']) === strtoupper($class);
+        });
+
+        return array_values($filteredForms);
+    }
+
+    /**
+     * Trouve un formulaire de maintenance par son nom (recherche partielle)
+     * 
+     * Utile pour trouver le form_id d'une agence par son nom
+     * Ex: findMaintenanceFormByName('MONTPELLIER') → retourne le form V5 - MONTPELLIER
+     * 
+     * @return array<mixed>|null Le formulaire trouvé ou null
+     */
+    public function findMaintenanceFormByName(string $searchName): ?array
+    {
+        $maintenanceForms = $this->getMaintenanceForms();
+        
+        $searchName = strtoupper($searchName);
+        
+        foreach ($maintenanceForms as $form) {
+            if (isset($form['name']) && str_contains(strtoupper($form['name']), $searchName)) {
+                return $form;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Retourne un mapping nom d'agence → form_id pour les formulaires MAINTENANCE
+     * 
+     * Utile pour initialiser/vérifier les form_id dans la table agencies
+     * 
+     * @return array<string, int> [nom_formulaire => form_id]
+     */
+    public function getMaintenanceFormsMapping(): array
+    {
+        $maintenanceForms = $this->getMaintenanceForms();
+        
+        $mapping = [];
+        foreach ($maintenanceForms as $form) {
+            if (isset($form['id'], $form['name'])) {
+                $mapping[$form['name']] = (int) $form['id'];
+            }
+        }
+
+        return $mapping;
+    }
+
+    // =========================================================================
+    // UTILITAIRES - MONITORING
+    // =========================================================================
 
     /**
      * Compte le nombre de formulaires non lus pour un form donné
