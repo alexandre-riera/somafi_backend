@@ -16,6 +16,11 @@ use Psr\Log\LoggerInterface;
  * - Vérifier si un équipement existe déjà (déduplication)
  * - Insérer les nouveaux équipements
  * - Générer les numéros pour équipements hors contrat
+ * 
+ * CORRECTION 30/01/2026:
+ * - 'source' → 'is_hors_contrat' (0 = contrat, 1 = hors contrat)
+ * - 'created_at' → 'date_enregistrement'
+ * - 'trigramme_technicien' → 'trigramme_tech'
  */
 class EquipmentPersister
 {
@@ -171,25 +176,24 @@ class EquipmentPersister
             'id_contact' => $formData->idContact,
             'numero_equipement' => $numero,
             'libelle_equipement' => $equipment->libelleEquipement,
-            'type_equipement' => $equipment->typeEquipement,
-            'marque' => $equipment->marque,
-            'mode_fonctionnement' => $equipment->modeFonctionnement,
+            'visite' => $visite,
+            'annee' => $annee,
+            'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d'),
             'repere_site_client' => $equipment->repereSiteClient,
             'mise_en_service' => $equipment->miseEnService,
             'numero_serie' => $equipment->numeroSerie,
+            'marque' => $equipment->marque,
+            'mode_fonctionnement' => $equipment->modeFonctionnement,
             'hauteur' => $equipment->hauteur,
             'largeur' => $equipment->largeur,
             'longueur' => $equipment->longueur,
             'etat_equipement' => $equipment->etatEquipement,
             'anomalies' => $equipment->anomalies,
-            'visite' => $visite,
-            'annee' => $annee,
-            'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d H:i:s'),
-            'trigramme_technicien' => $formData->trigramme,
+            'trigramme_tech' => $formData->trigramme,
+            'is_hors_contrat' => 0,  // ← CORRIGÉ: équipement AU contrat
             'kizeo_form_id' => $formId,
             'kizeo_data_id' => $dataId,
-            'source' => 'kizeo_contract',
-            'created_at' => (new \DateTime())->format('Y-m-d H:i:s'),
+            'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),  // ← CORRIGÉ
         ]);
 
         $this->kizeoLogger->debug('Équipement contrat inséré', [
@@ -255,18 +259,18 @@ class EquipmentPersister
         $this->insertEquipment($tableName, [
             'id_contact' => $formData->idContact,
             'numero_equipement' => $numero,
-            'type_equipement' => $equipment->typeEquipement,
+            'visite' => 'CE1',  // Défaut pour hors contrat
+            'annee' => $formData->annee,
+            'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d'),
             'marque' => $equipment->marque,
             'etat_equipement' => $equipment->etatEquipement,
             'anomalies' => $equipment->anomalies,
-            'annee' => $formData->annee,
-            'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d H:i:s'),
-            'trigramme_technicien' => $formData->trigramme,
+            'trigramme_tech' => $formData->trigramme,  // ← CORRIGÉ
+            'is_hors_contrat' => 1,  // ← CORRIGÉ: équipement HORS contrat
             'kizeo_form_id' => $formId,
             'kizeo_data_id' => $dataId,
             'kizeo_index' => $kizeoIndex,
-            'source' => 'kizeo_offcontract',
-            'created_at' => (new \DateTime())->format('Y-m-d H:i:s'),
+            'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),  // ← CORRIGÉ
         ]);
 
         $this->kizeoLogger->debug('Équipement hors contrat inséré', [

@@ -42,7 +42,10 @@ class FormDataExtractor
 
         // 1. Extraire les données globales du CR
         $idContact = $this->extractIdContact($fields);
-        $raisonSociale = $this->extractStringValue($fields, 'raison_sociale');
+        $raisonSociale = $this->extractStringValue($fields, 'raison_sociale')
+            ?? $this->extractStringValue($fields, 'nom_client')
+            ?? $this->extractStringValue($fields, 'client')
+            ?? $this->extractStringValue($fields, 'societe');
         $dateVisite = $this->extractDateVisite($fields);
         $annee = $dateVisite?->format('Y');
         $trigramme = $this->extractStringValue($fields, 'trigramme');

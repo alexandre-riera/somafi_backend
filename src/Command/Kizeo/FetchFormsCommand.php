@@ -33,6 +33,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * 
  * Fréquence CRON recommandée: Toutes les 2 heures
  *  /usr/bin/php /path/to/project/bin/console app:kizeo:fetch-forms >> /path/to/logs/kizeo-fetch.log 2>&1
+ * 
+ * CORRECTION 30/01/2026:
+ * - L'endpoint /data/unread retourne une liste SIMPLIFIÉE sans les fields
+ * - Il faut appeler getFormData() pour chaque CR afin de récupérer les données complètes
  */
 #[AsCommand(
     name: 'app:kizeo:fetch-forms',
@@ -251,7 +255,7 @@ class FetchFormsCommand extends Command
         }
 
         try {
-            // Récupérer les CR non lus
+            // Récupérer les CR non lus (liste SIMPLIFIÉE - juste les IDs)
             $unreadForms = $this->kizeoApi->getUnreadForms($formId, $limit);
 
             if (empty($unreadForms)) {
@@ -262,7 +266,30 @@ class FetchFormsCommand extends Command
             $io->text(sprintf('   📥 %d CR non lu(s) récupéré(s)', count($unreadForms)));
 
             // Traiter chaque CR
-            foreach ($unreadForms as $formData) {
+            // ⚠️ CORRECTION 30/01/2026: L'endpoint /unread retourne une liste simplifiée
+            // Il faut appeler getFormData() pour récupérer les données COMPLÈTES avec les fields
+            foreach ($unreadForms as $unreadItem) {
+                $dataId = $unreadItem['id'] ?? $unreadItem['_id'] ?? null;
+                
+                if (!$dataId) {
+                    $this->kizeoLogger->warning('CR sans data_id dans liste unread', ['item' => $unreadItem]);
+                    $stats['errors']++;
+                    continue;
+                }
+                
+                // Récupérer les données COMPLÈTES avec les fields
+                $formData = $this->kizeoApi->getFormData($formId, (int) $dataId);
+                
+                if ($formData === null) {
+                    $this->kizeoLogger->warning('Impossible de récupérer les détails du CR', [
+                        'form_id' => $formId,
+                        'data_id' => $dataId,
+                    ]);
+                    $io->text(sprintf('      ⚠️ CR #%s - Impossible de récupérer les détails', $dataId));
+                    $stats['errors']++;
+                    continue;
+                }
+                
                 $formStats = $this->processForm($agencyCode, $formId, $formData, $dryRun, $skipMarkRead, $io, $output);
                 
                 $stats['forms']++;
@@ -315,7 +342,7 @@ class FetchFormsCommand extends Command
         $dataId = $formData['id'] ?? $formData['_id'] ?? null;
         
         if (!$dataId) {
-            $this->kizeoLogger->warning('CR sans data_id', ['formData' => $formData]);
+            $this->kizeoLogger->warning('CR sans data_id', ['formData' => array_keys($formData)]);
             $stats['errors']++;
             return $stats;
         }
@@ -324,10 +351,8 @@ class FetchFormsCommand extends Command
 
         try {
             // 1. EXTRACTION : Parser le JSON → DTO
-            // ✅ CORRECTION : Ordre des paramètres (array $formData, int $formId)
             $extractedData = $this->formDataExtractor->extract($formData, $formId);
 
-            // ✅ CORRECTION : Utiliser les propriétés readonly, pas les getters
             if (!$extractedData->idContact) {
                 $this->kizeoLogger->warning('CR sans id_contact', [
                     'form_id' => $formId,
@@ -338,7 +363,6 @@ class FetchFormsCommand extends Command
             }
 
             if ($isVerbose) {
-                // ✅ CORRECTION : Propriétés readonly + déterminer la visite depuis les équipements
                 $visite = $this->determineVisiteFromExtractedData($extractedData);
                 $io->text(sprintf(
                     '      📄 CR #%d - Client: %s (ID: %d) - %s',
@@ -353,8 +377,6 @@ class FetchFormsCommand extends Command
             $generatedNumbers = []; // Pour les numéros générés hors contrat
             
             if (!$dryRun) {
-                // ✅ CORRECTION : La méthode s'appelle persist() pas persistAll()
-                // Signature : persist(ExtractedFormData $formData, string $agencyCode, int $formId, int $dataId)
                 $persistResult = $this->equipmentPersister->persist(
                     $extractedData,
                     $agencyCode,
@@ -367,7 +389,6 @@ class FetchFormsCommand extends Command
                 $generatedNumbers = $persistResult['generated_numbers'];
             } else {
                 // En dry-run, compter ce qui serait créé
-                // ✅ CORRECTION : Propriétés readonly, pas getters
                 $stats['equipments_created'] = count($extractedData->contractEquipments) 
                     + count($extractedData->offContractEquipments);
             }
@@ -382,13 +403,10 @@ class FetchFormsCommand extends Command
 
             // 3. CRÉATION JOBS : PDF + Photos
             if (!$dryRun) {
-                // ✅ CORRECTION : La méthode s'appelle createJobs() pas createJobsForForm()
-                // Signature : createJobs(ExtractedFormData $formData, string $agencyCode, array $generatedNumbers = [])
                 $jobsResult = $this->jobCreator->createJobs($extractedData, $agencyCode, $generatedNumbers);
                 $stats['jobs_created'] = ($jobsResult['pdf_created'] ? 1 : 0) + $jobsResult['photos_created'];
             } else {
                 // En dry-run, compter : 1 PDF + N photos
-                // ✅ CORRECTION : Propriété readonly medias
                 $stats['jobs_created'] = 1 + count($extractedData->medias);
             }
 
