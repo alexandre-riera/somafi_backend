@@ -154,6 +154,10 @@ class FormDataExtractor
 
     /**
      * Parse un équipement au contrat depuis le JSON
+     * 
+     * CORRECTION 30/01/2026:
+     * Les noms de champs Kizeo sont différents des noms "logiques"
+     * Mapping corrigé basé sur l'analyse du JSON réel
      */
     private function parseContractEquipment(array $item, int $index): ?ExtractedEquipment
     {
@@ -169,20 +173,36 @@ class FormDataExtractor
         $path = $this->getNestedValue($item, 'equipement', 'path');
         $visite = $this->extractVisiteFromPath($path);
 
+        // ==========================================================
+        // MAPPING KIZEO CORRIGÉ (30/01/2026)
+        // Basé sur l'analyse du JSON formulaire S40 (form_id 1055931)
+        // ==========================================================
         return ExtractedEquipment::createContract(
             numeroEquipement: trim($numero),
-            visite: $visite ?? 'CE1', // Défaut CE1 si non trouvé
-            libelleEquipement: $this->getNestedValue($item, 'libelle_equipement', 'value'),
-            typeEquipement: $this->getNestedValue($item, 'type_equipement', 'value'),
-            marque: $this->getNestedValue($item, 'marque', 'value'),
-            modeFonctionnement: $this->getNestedValue($item, 'mode_fonct', 'value'),
-            repereSiteClient: $this->getNestedValue($item, 'repere', 'value'),
-            miseEnService: $this->getNestedValue($item, 'mise_en_service', 'value'),
-            numeroSerie: $this->getNestedValue($item, 'numero_de_serie', 'value'),
-            hauteur: $this->getNestedValue($item, 'hauteur', 'value'),
-            largeur: $this->getNestedValue($item, 'largeur', 'value'),
-            longueur: $this->getNestedValue($item, 'longueur', 'value'),
-            etatEquipement: $this->getNestedValue($item, 'etat_equipement', 'value'),
+            visite: $visite ?? 'CE1',
+            // reference7 = Libellé équipement (Rideau métallique, Porte Rapide, etc.)
+            libelleEquipement: $this->getNestedValue($item, 'reference7', 'value'),
+            // Type équipement (pas de champ direct, utiliser reference7)
+            typeEquipement: $this->getNestedValue($item, 'reference7', 'value'),
+            // reference5 = Marque (JAVEY, DITEC, La Toulousaine, etc.)
+            marque: $this->getNestedValue($item, 'reference5', 'value'),
+            // mode_fonctionnement_2 = Mode fonctionnement (motorisé, manuel)
+            modeFonctionnement: $this->getNestedValue($item, 'mode_fonctionnement_2', 'value'),
+            // localisation_site_client = Repère site client (Charcuterie, QUAI, etc.)
+            repereSiteClient: $this->getNestedValue($item, 'localisation_site_client', 'value'),
+            // reference2 = Année mise en service (2003, 2014, etc.)
+            miseEnService: $this->getNestedValue($item, 'reference2', 'value'),
+            // reference6 = Numéro de série
+            numeroSerie: $this->getNestedValue($item, 'reference6', 'value'),
+            // reference3 = Hauteur en mm
+            hauteur: $this->getNestedValue($item, 'reference3', 'value'),
+            // reference1 = Largeur en mm
+            largeur: $this->getNestedValue($item, 'reference1', 'value'),
+            // Pas de champ longueur dans le formulaire Kizeo analysé
+            longueur: null,
+            // etat = Code état (A, B, C, D, E, F, G)
+            etatEquipement: $this->getNestedValue($item, 'etat', 'value'),
+            // Anomalies combinées
             anomalies: $this->extractAnomalies($item),
             rawData: $item,
         );
