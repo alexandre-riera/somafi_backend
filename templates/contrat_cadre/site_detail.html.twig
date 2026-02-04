@@ -1,0 +1,524 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ site.raison_sociale }} - {{ contrat_cadre.nom }}{% endblock %}
+
+{% block stylesheets %}
+{{ parent() }}
+<style>
+    :root {
+        --cc-primary: {{ contrat_cadre.primaryColor ?? '#E30613' }};
+        --cc-primary-dark: color-mix(in srgb, var(--cc-primary) 80%, black);
+        --cc-primary-light: color-mix(in srgb, var(--cc-primary) 20%, white);
+    }
+
+    .cc-header {
+        background: linear-gradient(135deg, var(--cc-primary) 0%, var(--cc-primary-dark) 100%);
+        color: white;
+        padding: 1.5rem 0;
+        margin-bottom: 2rem;
+    }
+
+    .cc-header a {
+        color: rgba(255,255,255,0.8);
+        text-decoration: none;
+    }
+
+    .cc-header a:hover {
+        color: white;
+    }
+
+    .cc-header h1 {
+        margin: 0.5rem 0 0;
+        font-size: 1.5rem;
+        font-weight: 700;
+    }
+
+    .site-info-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1.5rem;
+    }
+
+    .site-info-card h2 {
+        margin: 0 0 1rem;
+        font-size: 1.25rem;
+        color: #333;
+        border-bottom: 2px solid var(--cc-primary);
+        padding-bottom: 0.5rem;
+    }
+
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+
+    .info-item {
+        padding: 0.75rem;
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+
+    .info-item .label {
+        font-size: 0.75rem;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .info-item .value {
+        font-weight: 600;
+        color: #333;
+        margin-top: 0.25rem;
+    }
+
+    .filters-bar {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem 1.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1.5rem;
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .filter-group label {
+        font-weight: 500;
+        color: #666;
+        font-size: 0.875rem;
+    }
+
+    .filter-group select {
+        padding: 0.5rem 1rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        min-width: 120px;
+    }
+
+    .filter-group select:focus {
+        outline: none;
+        border-color: var(--cc-primary);
+    }
+
+    .stats-row {
+        display: flex;
+        gap: 1rem;
+        margin-left: auto;
+    }
+
+    .stat-badge {
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        font-weight: 600;
+    }
+
+    .stat-badge.total {
+        background: var(--cc-primary);
+        color: white;
+    }
+
+    .stat-badge.contrat {
+        background: #198754;
+        color: white;
+    }
+
+    .stat-badge.hors-contrat {
+        background: #fd7e14;
+        color: white;
+    }
+
+    .equipment-section {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+
+    .equipment-section h3 {
+        margin: 0;
+        padding: 1rem 1.5rem;
+        background: #f8f9fa;
+        font-size: 1rem;
+        color: #333;
+        border-bottom: 1px solid #eee;
+    }
+
+    .equipment-section h3.hors-contrat {
+        background: #fff3e0;
+        color: #e65100;
+    }
+
+    .equipment-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .equipment-table th {
+        background: #f8f9fa;
+        padding: 0.75rem 1rem;
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        color: #666;
+        border-bottom: 1px solid #eee;
+    }
+
+    .equipment-table td {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #eee;
+        font-size: 0.9rem;
+    }
+
+    .equipment-table tr:hover {
+        background: #f8f9fa;
+    }
+
+    .status-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 0.5rem;
+    }
+
+    .status-dot.A { background: #198754; }
+    .status-dot.B { background: #fd7e14; }
+    .status-dot.C { background: #dc3545; }
+
+    .status-label {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    .status-label.A { background: #d1e7dd; color: #0f5132; }
+    .status-label.B { background: #fff3cd; color: #856404; }
+    .status-label.C { background: #f8d7da; color: #842029; }
+
+    .anomalies-text {
+        color: #dc3545;
+        font-size: 0.8rem;
+        max-width: 300px;
+    }
+
+    .files-section {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .files-section h3 {
+        margin: 0 0 1rem;
+        font-size: 1rem;
+        color: #333;
+    }
+
+    .file-item {
+        display: flex;
+        align-items: center;
+        padding: 0.75rem;
+        background: #f8f9fa;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
+        text-decoration: none;
+        color: inherit;
+        transition: all 0.2s;
+    }
+
+    .file-item:hover {
+        background: var(--cc-primary-light);
+    }
+
+    .file-item i {
+        color: var(--cc-primary);
+        margin-right: 0.75rem;
+        font-size: 1.25rem;
+    }
+
+    .file-item .file-name {
+        flex: 1;
+        font-weight: 500;
+    }
+
+    .file-item .download-icon {
+        color: #666;
+    }
+
+    .no-files {
+        color: #666;
+        font-style: italic;
+        padding: 1rem;
+        text-align: center;
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+
+    .no-equipments {
+        padding: 2rem;
+        text-align: center;
+        color: #666;
+    }
+
+    .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        color: var(--cc-primary);
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .back-link:hover {
+        text-decoration: underline;
+    }
+
+    @media (max-width: 768px) {
+        .filters-bar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .stats-row {
+            margin-left: 0;
+            justify-content: center;
+        }
+
+        .equipment-table {
+            display: block;
+            overflow-x: auto;
+        }
+
+        .info-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+{# Header #}
+<div class="cc-header">
+    <div class="container">
+        <a href="{{ path('app_contrat_cadre_sites', {slug: contrat_cadre.slug}) }}">
+            ← Retour à la liste des sites
+        </a>
+        <h1>{{ site.raison_sociale }}</h1>
+    </div>
+</div>
+
+<div class="container">
+    {# Informations du site #}
+    <div class="site-info-card">
+        <h2>Informations du site</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="label">Adresse</div>
+                <div class="value">
+                    {{ site.adressep_1 ?? '-' }}<br>
+                    {% if site.adressep_2 %}{{ site.adressep_2 }}<br>{% endif %}
+                    {{ site.cpostalp }} {{ site.villep }}
+                </div>
+            </div>
+            <div class="info-item">
+                <div class="label">Contact site</div>
+                <div class="value">{{ site.contact_site ?? '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">Téléphone</div>
+                <div class="value">{{ site.telephone ?? '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">Email</div>
+                <div class="value">{{ site.email ?? '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">Agence SOMAFI</div>
+                <div class="value">{{ agency_code }} - {{ site.agency_name ?? 'SOMAFI' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">ID Contact</div>
+                <div class="value">{{ id_contact }}</div>
+            </div>
+        </div>
+    </div>
+
+    {# Filtres et stats #}
+    <div class="filters-bar">
+        <form method="GET" id="filterForm" class="d-flex gap-3 flex-wrap align-items-center">
+            <div class="filter-group">
+                <label for="annee">Année :</label>
+                <select name="annee" id="annee" onchange="document.getElementById('filterForm').submit()">
+                    {% for year in years %}
+                        <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>
+                            {{ year }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label for="visite">Visite :</label>
+                <select name="visite" id="visite" onchange="document.getElementById('filterForm').submit()">
+                    {% for visit in visits %}
+                        <option value="{{ visit }}" {% if visit == current_visit %}selected{% endif %}>
+                            {{ visit }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </form>
+
+        <div class="stats-row">
+            <span class="stat-badge total">{{ stats.total }} équipement(s)</span>
+            {% if stats.au_contrat > 0 %}
+                <span class="stat-badge contrat">{{ stats.au_contrat }} au contrat</span>
+            {% endif %}
+            {% if stats.hors_contrat > 0 %}
+                <span class="stat-badge hors-contrat">{{ stats.hors_contrat }} hors contrat</span>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if equipments|length > 0 %}
+        {# Équipements au contrat #}
+        {% set equipContrat = equipments|filter(e => not e.is_hors_contrat) %}
+        {% if equipContrat|length > 0 %}
+            <div class="equipment-section">
+                <h3>🔧 Équipements au contrat ({{ equipContrat|length }})</h3>
+                <table class="equipment-table">
+                    <thead>
+                        <tr>
+                            <th>N°</th>
+                            <th>Type</th>
+                            <th>Marque</th>
+                            <th>Repère site</th>
+                            <th>MES</th>
+                            <th>État</th>
+                            <th>Anomalies</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for equip in equipContrat %}
+                            <tr>
+                                <td><strong>{{ equip.numero_equipement }}</strong></td>
+                                <td>{{ equip.libelle_equipement }}</td>
+                                <td>{{ equip.marque ?? '-' }}</td>
+                                <td>{{ equip.repere_site_client ?? '-' }}</td>
+                                <td>{{ equip.mise_en_service ?? '-' }}</td>
+                                <td>
+                                    {% if equip.statut_equipement %}
+                                        <span class="status-dot {{ equip.statut_equipement }}"></span>
+                                        <span class="status-label {{ equip.statut_equipement }}">
+                                            {% if equip.statut_equipement == 'A' %}Bon état
+                                            {% elseif equip.statut_equipement == 'B' %}Travaux à prévoir
+                                            {% elseif equip.statut_equipement == 'C' %}Urgent
+                                            {% else %}{{ equip.statut_equipement }}
+                                            {% endif %}
+                                        </span>
+                                    {% else %}-{% endif %}
+                                </td>
+                                <td>
+                                    {% if equip.anomalies %}
+                                        <span class="anomalies-text">{{ equip.anomalies|slice(0, 100) }}{% if equip.anomalies|length > 100 %}...{% endif %}</span>
+                                    {% else %}-{% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+
+        {# Équipements hors contrat #}
+        {% set equipHorsContrat = equipments|filter(e => e.is_hors_contrat) %}
+        {% if equipHorsContrat|length > 0 %}
+            <div class="equipment-section">
+                <h3 class="hors-contrat">⚠️ Équipements hors contrat ({{ equipHorsContrat|length }})</h3>
+                <table class="equipment-table">
+                    <thead>
+                        <tr>
+                            <th>N°</th>
+                            <th>Type</th>
+                            <th>Marque</th>
+                            <th>Repère site</th>
+                            <th>MES</th>
+                            <th>État</th>
+                            <th>Anomalies</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for equip in equipHorsContrat %}
+                            <tr>
+                                <td><strong>{{ equip.numero_equipement }}</strong></td>
+                                <td>{{ equip.libelle_equipement }}</td>
+                                <td>{{ equip.marque ?? '-' }}</td>
+                                <td>{{ equip.repere_site_client ?? '-' }}</td>
+                                <td>{{ equip.mise_en_service ?? '-' }}</td>
+                                <td>
+                                    {% if equip.statut_equipement %}
+                                        <span class="status-dot {{ equip.statut_equipement }}"></span>
+                                        <span class="status-label {{ equip.statut_equipement }}">
+                                            {% if equip.statut_equipement == 'A' %}Bon état
+                                            {% elseif equip.statut_equipement == 'B' %}Travaux à prévoir
+                                            {% elseif equip.statut_equipement == 'C' %}Urgent
+                                            {% else %}{{ equip.statut_equipement }}
+                                            {% endif %}
+                                        </span>
+                                    {% else %}-{% endif %}
+                                </td>
+                                <td>
+                                    {% if equip.anomalies %}
+                                        <span class="anomalies-text">{{ equip.anomalies|slice(0, 100) }}{% if equip.anomalies|length > 100 %}...{% endif %}</span>
+                                    {% else %}-{% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="equipment-section">
+            <div class="no-equipments">
+                <p>Aucun équipement trouvé pour cette visite</p>
+                <p class="text-muted">Sélectionnez une autre année ou visite dans les filtres ci-dessus</p>
+            </div>
+        </div>
+    {% endif %}
+
+    {# Fichiers disponibles #}
+    <div class="files-section">
+        <h3>📄 Documents disponibles</h3>
+        {% if files|length > 0 %}
+            {% for file in files %}
+                <a href="{{ asset('uploads/cc/' ~ file.path) }}" class="file-item" target="_blank" download>
+                    <i class="bi bi-file-pdf"></i>
+                    <span class="file-name">{{ file.name }}</span>
+                    <span class="download-icon">↓</span>
+                </a>
+            {% endfor %}
+        {% else %}
+            <div class="no-files">
+                Aucun document disponible pour le moment
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

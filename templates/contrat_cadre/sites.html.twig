@@ -1,0 +1,358 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ contrat_cadre.nom }} - Portail Client{% endblock %}
+
+{% block stylesheets %}
+{{ parent() }}
+<style>
+    :root {
+        --cc-primary: {{ contrat_cadre.primaryColor ?? '#E30613' }};
+        --cc-primary-dark: color-mix(in srgb, var(--cc-primary) 80%, black);
+        --cc-primary-light: color-mix(in srgb, var(--cc-primary) 20%, white);
+    }
+
+    .cc-header {
+        background: linear-gradient(135deg, var(--cc-primary) 0%, var(--cc-primary-dark) 100%);
+        color: white;
+        padding: 2rem 0;
+        margin-bottom: 2rem;
+    }
+
+    .cc-header h1 {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 700;
+    }
+
+    .cc-header .subtitle {
+        opacity: 0.9;
+        margin-top: 0.5rem;
+    }
+
+    .cc-logo {
+        max-height: 60px;
+        filter: brightness(0) invert(1);
+    }
+
+    .stats-cards {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 2rem;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem 1.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        min-width: 150px;
+    }
+
+    .stat-card .number {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--cc-primary);
+    }
+
+    .stat-card .label {
+        color: #666;
+        font-size: 0.875rem;
+    }
+
+    .search-box {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1.5rem;
+    }
+
+    .search-box input {
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 0.75rem 1rem;
+        width: 100%;
+        font-size: 1rem;
+    }
+
+    .search-box input:focus {
+        outline: none;
+        border-color: var(--cc-primary);
+        box-shadow: 0 0 0 3px var(--cc-primary-light);
+    }
+
+    .filter-buttons {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+    }
+
+    .filter-btn {
+        padding: 0.5rem 1rem;
+        border: 1px solid #ddd;
+        border-radius: 20px;
+        background: white;
+        cursor: pointer;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+    }
+
+    .filter-btn:hover, .filter-btn.active {
+        background: var(--cc-primary);
+        color: white;
+        border-color: var(--cc-primary);
+    }
+
+    .filter-btn .count {
+        background: rgba(0,0,0,0.1);
+        padding: 0.1rem 0.5rem;
+        border-radius: 10px;
+        margin-left: 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    .filter-btn.active .count {
+        background: rgba(255,255,255,0.3);
+    }
+
+    .sites-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1rem;
+    }
+
+    .site-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1.25rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: all 0.2s;
+        text-decoration: none;
+        color: inherit;
+        display: block;
+        border-left: 4px solid transparent;
+    }
+
+    .site-card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        transform: translateY(-2px);
+        border-left-color: var(--cc-primary);
+    }
+
+    .site-card .site-name {
+        font-weight: 600;
+        font-size: 1rem;
+        color: #333;
+        margin-bottom: 0.5rem;
+    }
+
+    .site-card .site-address {
+        color: #666;
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    .site-card .site-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid #eee;
+    }
+
+    .site-card .agency-badge {
+        background: var(--cc-primary-light);
+        color: var(--cc-primary);
+        padding: 0.25rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .site-card .arrow {
+        color: var(--cc-primary);
+        font-size: 1.25rem;
+    }
+
+    .no-results {
+        text-align: center;
+        padding: 3rem;
+        color: #666;
+    }
+
+    .no-results i {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+    }
+
+    @media (max-width: 768px) {
+        .cc-header {
+            padding: 1.5rem 0;
+        }
+        
+        .cc-header h1 {
+            font-size: 1.5rem;
+        }
+
+        .stats-cards {
+            justify-content: space-between;
+        }
+
+        .stat-card {
+            flex: 1;
+            min-width: calc(50% - 0.5rem);
+        }
+
+        .sites-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+{# Header avec couleur du CC #}
+<div class="cc-header">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1>{{ contrat_cadre.nom }}</h1>
+                <p class="subtitle mb-0">Portail de suivi des équipements</p>
+            </div>
+            {% if contrat_cadre.logo %}
+                <img src="{{ asset('img/logos/' ~ contrat_cadre.logo) }}" alt="{{ contrat_cadre.nom }}" class="cc-logo">
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    {# Statistiques #}
+    <div class="stats-cards">
+        <div class="stat-card">
+            <div class="number">{{ total_sites }}</div>
+            <div class="label">Sites en France</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{{ sites_by_agency|length }}</div>
+            <div class="label">Agences SOMAFI</div>
+        </div>
+    </div>
+
+    {# Recherche et filtres #}
+    <div class="search-box">
+        <input type="text" 
+               id="searchInput" 
+               placeholder="🔍 Rechercher un site par nom, ville ou code postal..."
+               autocomplete="off">
+        
+        <div class="filter-buttons">
+            <button class="filter-btn active" data-agency="all">
+                Toutes les agences <span class="count">{{ total_sites }}</span>
+            </button>
+            {% for agency_code, count in sites_by_agency %}
+                <button class="filter-btn" data-agency="{{ agency_code }}">
+                    {{ agency_code }} <span class="count">{{ count }}</span>
+                </button>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# Grille des sites #}
+    <div class="sites-grid" id="sitesGrid">
+        {% for site in sites %}
+            <a href="{{ path('app_contrat_cadre_site_detail', {
+                slug: contrat_cadre.slug,
+                agencyCode: site.agency_code,
+                idContact: site.id_contact
+            }) }}" 
+               class="site-card"
+               data-agency="{{ site.agency_code }}"
+               data-search="{{ site.raison_sociale|lower }} {{ site.villep|lower }} {{ site.cpostalp }}">
+                
+                <div class="site-name">{{ site.raison_sociale }}</div>
+                <div class="site-address">
+                    {% if site.adressep_1 %}{{ site.adressep_1 }}<br>{% endif %}
+                    {% if site.cpostalp or site.villep %}
+                        {{ site.cpostalp }} {{ site.villep }}
+                    {% endif %}
+                </div>
+                <div class="site-meta">
+                    <span class="agency-badge">{{ site.agency_code }} - {{ site.agency_name ?? 'SOMAFI' }}</span>
+                    <span class="arrow">→</span>
+                </div>
+            </a>
+        {% else %}
+            <div class="no-results">
+                <div><i class="bi bi-building-x"></i></div>
+                <p>Aucun site trouvé pour ce contrat cadre</p>
+            </div>
+        {% endfor %}
+    </div>
+
+    {# Message aucun résultat (caché par défaut) #}
+    <div class="no-results" id="noResults" style="display: none;">
+        <div><i class="bi bi-search"></i></div>
+        <p>Aucun site ne correspond à votre recherche</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block javascripts %}
+{{ parent() }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const sitesGrid = document.getElementById('sitesGrid');
+    const siteCards = document.querySelectorAll('.site-card');
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    const noResults = document.getElementById('noResults');
+
+    let currentAgency = 'all';
+    let currentSearch = '';
+
+    function filterSites() {
+        let visibleCount = 0;
+
+        siteCards.forEach(card => {
+            const agency = card.dataset.agency;
+            const searchText = card.dataset.search;
+            
+            const matchesAgency = currentAgency === 'all' || agency === currentAgency;
+            const matchesSearch = currentSearch === '' || searchText.includes(currentSearch.toLowerCase());
+
+            if (matchesAgency && matchesSearch) {
+                card.style.display = 'block';
+                visibleCount++;
+            } else {
+                card.style.display = 'none';
+            }
+        });
+
+        // Afficher/cacher le message "aucun résultat"
+        noResults.style.display = visibleCount === 0 ? 'block' : 'none';
+        sitesGrid.style.display = visibleCount === 0 ? 'none' : 'grid';
+    }
+
+    // Recherche
+    searchInput.addEventListener('input', function() {
+        currentSearch = this.value.trim();
+        filterSites();
+    });
+
+    // Filtres par agence
+    filterButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            filterButtons.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentAgency = this.dataset.agency;
+            filterSites();
+        });
+    });
+});
+</script>
+{% endblock %}
