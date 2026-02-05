@@ -29,6 +29,7 @@ final class ExtractedMedia
      * @param int|null $photoIndex Index si plusieurs photos du même type
      * @param string|null $fieldName Nom du champ Kizeo d'origine
      * @param bool $isContract Photo d'équipement au contrat ou hors contrat
+     * @param int|null $equipmentIndex Index de l'équipement dans le tableau Kizeo (hors contrat)
      */
     public function __construct(
         public readonly string $mediaName,
@@ -37,6 +38,7 @@ final class ExtractedMedia
         public readonly ?int $photoIndex = null,
         public readonly ?string $fieldName = null,
         public readonly bool $isContract = true,
+        public readonly ?int $equipmentIndex = null,
     ) {
     }
 
@@ -117,6 +119,7 @@ final class ExtractedMedia
             'photo_index' => $this->photoIndex,
             'field_name' => $this->fieldName,
             'is_contract' => $this->isContract,
+            'equipment_index' => $this->equipmentIndex,
             'local_filename' => $this->getLocalFileName(),
         ];
     }
@@ -138,16 +141,20 @@ final class ExtractedMedia
             photoIndex: $photoIndex,
             fieldName: $fieldName,
             isContract: true,
+            equipmentIndex: null,
         );
     }
 
     /**
      * Factory pour photo d'équipement hors contrat
+     * 
+     * @param int|null $equipmentIndex Index de l'équipement dans tableau2 (pour liaison avec generatedNumbers)
      */
     public static function createForOffContract(
         string $mediaName,
         string $equipmentNumero,
         ?string $fieldName = null,
+        ?int $equipmentIndex = null,
     ): self {
         return new self(
             mediaName: $mediaName,
@@ -156,6 +163,7 @@ final class ExtractedMedia
             photoIndex: null,
             fieldName: $fieldName,
             isContract: false,
+            equipmentIndex: $equipmentIndex,
         );
     }
 

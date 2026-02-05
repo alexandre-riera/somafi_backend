@@ -162,7 +162,7 @@ class EquipmentPersister
         $annee = $formData->annee;
 
         // Vérifier si existe déjà
-        if ($this->contractEquipmentExists($tableName, $numero, $visite, $annee)) {
+        if ($this->contractEquipmentExists($tableName, $numero, $visite, $annee, $formData->idContact)) {
             $this->kizeoLogger->debug('Équipement contrat déjà existant', [
                 'numero' => $numero,
                 'visite' => $visite,
@@ -211,14 +211,14 @@ class EquipmentPersister
         string $tableName,
         string $numero,
         string $visite,
-        string $annee
+        string $annee,
+        int $idContact
     ): bool {
         $sql = sprintf(
-            'SELECT COUNT(*) FROM %s WHERE numero_equipement = ? AND visite = ? AND annee = ?',
+            'SELECT COUNT(*) FROM %s WHERE id_contact = ? AND numero_equipement = ? AND visite = ? AND annee = ?',
             $tableName
         );
-
-        return (int) $this->connection->fetchOne($sql, [$numero, $visite, $annee]) > 0;
+        return (int) $this->connection->fetchOne($sql, [$idContact, $numero, $visite, $annee]) > 0;
     }
 
     /**

@@ -9,7 +9,7 @@ namespace App\DTO\Kizeo;
  * 
  * Représente les informations globales d'un formulaire (data) :
  * - Identifiants Kizeo (formId, dataId)
- * - Contexte client (idContact, raisonSociale)
+ * - Contexte client (idContact, idSociete, raisonSociale)
  * - Contexte visite (date, année, trigramme technicien)
  * - Collections d'équipements et médias
  */
@@ -19,6 +19,7 @@ final class ExtractedFormData
      * @param int $formId ID du formulaire Kizeo
      * @param int $dataId ID des données Kizeo (unique par soumission)
      * @param int|null $idContact ID du contact SOMAFI (clé de liaison)
+     * @param string|null $idSociete ID société (référence client)
      * @param string|null $raisonSociale Nom du client
      * @param \DateTimeInterface|null $dateVisite Date de la visite
      * @param string|null $annee Année de la visite (YYYY)
@@ -31,6 +32,7 @@ final class ExtractedFormData
         public readonly int $formId,
         public readonly int $dataId,
         public readonly ?int $idContact,
+        public readonly ?string $idSociete,
         public readonly ?string $raisonSociale,
         public readonly ?\DateTimeInterface $dateVisite,
         public readonly ?string $annee,
@@ -103,6 +105,7 @@ final class ExtractedFormData
             'form_id' => $this->formId,
             'data_id' => $this->dataId,
             'id_contact' => $this->idContact,
+            'id_societe' => $this->idSociete,
             'client' => $this->raisonSociale,
             'date_visite' => $this->dateVisite?->format('Y-m-d'),
             'annee' => $this->annee,

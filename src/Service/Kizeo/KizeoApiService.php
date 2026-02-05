@@ -522,6 +522,94 @@ class KizeoApiService
     }
 
     // =========================================================================
+    // MARQUAGE COMME NON LU (RESET)
+    // =========================================================================
+
+    /**
+     * Récupère TOUS les data_ids d'un formulaire (lus + non lus)
+     * 
+     * @return array<int> Liste des data_ids
+     */
+    public function getAllDataIdsForForm(int $formId): array
+    {
+        $endpoint = sprintf('/forms/%d/data/all', $formId);
+        
+        try {
+            $response = $this->request('GET', $endpoint);
+            
+            // L'API retourne { "data": [ id1, id2, ... ] }
+            $dataIds = $response['data'] ?? [];
+            
+            $this->kizeoLogger->info('Data IDs récupérés pour formulaire', [
+                'form_id' => $formId,
+                'count' => count($dataIds),
+            ]);
+            
+            return $dataIds;
+            
+        } catch (\Exception $e) {
+            $this->kizeoLogger->error('Erreur récupération data IDs', [
+                'form_id' => $formId,
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Marque une liste de data_ids comme NON LUS
+     * 
+     * Endpoint miroir de markasreadbyaction : markasunreadbyaction
+     * POST /forms/{formId}/markasunreadbyaction/read
+     * Body: { "data_ids": [id1, id2, ...] }
+     */
+    public function markAsUnread(int $formId, array $dataIds): bool
+    {
+        if (empty($dataIds)) {
+            return true;
+        }
+        
+        $endpoint = sprintf('/forms/%d/markasunreadbyaction/read', $formId);
+        
+        try {
+            $response = $this->httpClient->request('POST', $this->apiUrl . $endpoint, [
+                'headers' => [
+                    'Authorization' => $this->apiToken,
+                    'Content-Type' => 'application/json',
+                ],
+                'json' => [
+                    'data_ids' => array_map('intval', $dataIds),
+                ],
+                'timeout' => self::TIMEOUT,
+            ]);
+            
+            $statusCode = $response->getStatusCode();
+            
+            if ($statusCode === 200) {
+                $this->kizeoLogger->info('Formulaires marqués comme NON LUS', [
+                    'form_id' => $formId,
+                    'count' => count($dataIds),
+                ]);
+                return true;
+            }
+            
+            $this->kizeoLogger->warning('Marquage non-lu - code inattendu', [
+                'form_id' => $formId,
+                'status_code' => $statusCode,
+            ]);
+            return false;
+            
+        } catch (\Exception $e) {
+            $this->kizeoLogger->error('Erreur marquage non-lu', [
+                'form_id' => $formId,
+                'count' => count($dataIds),
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    // =========================================================================
     // MÉTHODE PRIVÉE - REQUÊTE GÉNÉRIQUE
     // =========================================================================
 

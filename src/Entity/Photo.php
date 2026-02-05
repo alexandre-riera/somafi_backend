@@ -20,7 +20,10 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(columns: ['id_contact'], name: 'idx_photo_contact')]
 #[ORM\Index(columns: ['code_agence'], name: 'idx_photo_agence')]
 #[ORM\Index(columns: ['equipment_id'], name: 'idx_photo_equipment')]
+#[ORM\Index(columns: ['numero_equipement'], name: 'idx_photo_numero')]
 #[ORM\Index(columns: ['form_id', 'data_id'], name: 'idx_photo_kizeo')]
+#[ORM\Index(columns: ['id_contact', 'visite', 'annee'], name: 'idx_photo_lookup')]
+#[ORM\UniqueConstraint(name: 'uk_photo_equip', columns: ['form_id', 'data_id', 'numero_equipement'])]
 class Photo
 {
     #[ORM\Id]
@@ -58,6 +61,28 @@ class Photo
 
     #[ORM\Column(length: 4, nullable: true)]
     private ?string $annee = null;
+
+    #[ORM\Column(length: 50, nullable: true)]
+    private ?string $numero_equipement = null;
+
+    // ========== Champs de suivi téléchargement ==========
+
+    #[ORM\Column(type: 'boolean')]
+    private bool $is_downloaded = false;
+
+    #[ORM\Column(length: 500, nullable: true)]
+    private ?string $local_path = null;
+
+    #[ORM\Column(type: 'datetime')]
+    private \DateTimeInterface $date_enregistrement;
+
+    #[ORM\Column(type: 'datetime', nullable: true)]
+    private ?\DateTimeInterface $date_modification = null;
+
+    public function __construct()
+    {
+        $this->date_enregistrement = new \DateTime();
+    }
 
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $raison_sociale_visite = null;
@@ -309,6 +334,61 @@ class Photo
     public function setAnnee(?string $annee): static
     {
         $this->annee = $annee;
+        return $this;
+    }
+
+    public function getNumeroEquipement(): ?string
+    {
+        return $this->numero_equipement;
+    }
+
+    public function setNumeroEquipement(?string $numero_equipement): static
+    {
+        $this->numero_equipement = $numero_equipement;
+        return $this;
+    }
+
+    public function getIsDownloaded(): bool
+    {
+        return $this->is_downloaded;
+    }
+
+    public function setIsDownloaded(bool $is_downloaded): static
+    {
+        $this->is_downloaded = $is_downloaded;
+        return $this;
+    }
+
+    public function getLocalPath(): ?string
+    {
+        return $this->local_path;
+    }
+
+    public function setLocalPath(?string $local_path): static
+    {
+        $this->local_path = $local_path;
+        return $this;
+    }
+
+    public function getDateEnregistrement(): \DateTimeInterface
+    {
+        return $this->date_enregistrement;
+    }
+
+    public function setDateEnregistrement(\DateTimeInterface $date_enregistrement): static
+    {
+        $this->date_enregistrement = $date_enregistrement;
+        return $this;
+    }
+
+    public function getDateModification(): ?\DateTimeInterface
+    {
+        return $this->date_modification;
+    }
+
+    public function setDateModification(?\DateTimeInterface $date_modification): static
+    {
+        $this->date_modification = $date_modification;
         return $this;
     }
 
@@ -843,5 +923,33 @@ class Photo
     public function countPhotos(): int
     {
         return count($this->getAllPhotos());
+    }
+
+    /**
+     * Affecte un nom de média Kizeo à la colonne photo correspondante.
+     * 
+     * Gère les suffixes numériques Kizeo (photo_plaque_1 → photo_plaque).
+     * Utilise les setters existants via réflexion sur les propriétés photo_*.
+     * 
+     * @param string $fieldName Nom du champ Kizeo (ex: "photo_plaque" ou "photo_plaque_1")
+     * @param string $mediaName Nom du fichier Kizeo (ex: "photo_plaque_1.jpg")
+     * @return bool true si le champ a été trouvé et affecté
+     */
+    public function setPhotoByFieldName(string $fieldName, string $mediaName): bool
+    {
+        // Tentative directe
+        if (property_exists($this, $fieldName) && str_starts_with($fieldName, 'photo_')) {
+            $this->$fieldName = $mediaName;
+            return true;
+        }
+
+        // Essayer sans suffixe numérique final (_1, _2, etc.)
+        $stripped = preg_replace('/_\d+$/', '', $fieldName);
+        if ($stripped !== $fieldName && property_exists($this, $stripped) && str_starts_with($stripped, 'photo_')) {
+            $this->$stripped = $mediaName;
+            return true;
+        }
+
+        return false;
     }
 }

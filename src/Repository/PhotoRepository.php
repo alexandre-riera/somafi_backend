@@ -79,6 +79,26 @@ class PhotoRepository extends ServiceEntityRepository
     }
 
     /**
+     * Vérifie si une photo existe déjà pour ce form/data/numero_equipement
+     * Utilisé par PhotoPersister pour la déduplication (clé unique uk_photo_equip)
+     */
+    public function existsByFormDataNumero(string $formId, string $dataId, string $numeroEquipement): bool
+    {
+        $count = $this->createQueryBuilder('p')
+            ->select('COUNT(p.id)')
+            ->andWhere('p.form_id = :formId')
+            ->andWhere('p.data_id = :dataId')
+            ->andWhere('p.numero_equipement = :numero')
+            ->setParameter('formId', $formId)
+            ->setParameter('dataId', $dataId)
+            ->setParameter('numero', $numeroEquipement)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        return $count > 0;
+    }
+
+    /**
      * Compte les photos par agence
      */
     public function countByAgence(string $codeAgence): int
@@ -102,6 +122,21 @@ class PhotoRepository extends ServiceEntityRepository
             ->orderBy('p.annee', 'DESC')
             ->addOrderBy('p.visite', 'DESC')
             ->addOrderBy('p.code_equipement', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Récupère les photos non encore téléchargées (pour DownloadMediaCommand)
+     * 
+     * @return Photo[]
+     */
+    public function findNotDownloaded(int $limit = 50): array
+    {
+        return $this->createQueryBuilder('p')
+            ->andWhere('p.is_downloaded = false')
+            ->orderBy('p.date_enregistrement', 'ASC')
+            ->setMaxResults($limit)
             ->getQuery()
             ->getResult();
     }

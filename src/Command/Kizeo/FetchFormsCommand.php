@@ -9,6 +9,7 @@ use App\Service\Kizeo\EquipmentPersister;
 use App\Service\Kizeo\FormDataExtractor;
 use App\Service\Kizeo\JobCreator;
 use App\Service\Kizeo\KizeoApiService;
+use App\Service\Kizeo\PhotoPersister;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -51,6 +52,7 @@ class FetchFormsCommand extends Command
         private readonly KizeoApiService $kizeoApi,
         private readonly FormDataExtractor $formDataExtractor,
         private readonly EquipmentPersister $equipmentPersister,
+        private readonly PhotoPersister $photoPersister,
         private readonly JobCreator $jobCreator,
         private readonly AgencyRepository $agencyRepository,
         private readonly KizeoJobRepository $jobRepository,
@@ -138,6 +140,7 @@ class FetchFormsCommand extends Command
             'forms_processed' => 0,
             'equipments_created' => 0,
             'equipments_skipped' => 0,
+            'photos_created' => 0,
             'jobs_created' => 0,
             'errors' => 0,
         ];
@@ -150,6 +153,7 @@ class FetchFormsCommand extends Command
             $globalStats['forms_processed'] += $agencyStats['forms'];
             $globalStats['equipments_created'] += $agencyStats['equipments_created'];
             $globalStats['equipments_skipped'] += $agencyStats['equipments_skipped'];
+            $globalStats['photos_created'] += $agencyStats['photos_created'];
             $globalStats['jobs_created'] += $agencyStats['jobs_created'];
             $globalStats['errors'] += $agencyStats['errors'];
 
@@ -171,6 +175,7 @@ class FetchFormsCommand extends Command
                 ['CR traités', $globalStats['forms_processed']],
                 ['Équipements créés', $globalStats['equipments_created']],
                 ['Équipements ignorés (doublons)', $globalStats['equipments_skipped']],
+                ['Photos référencées', $globalStats['photos_created']],
                 ['Jobs créés (PDF+Photos)', $globalStats['jobs_created']],
                 ['Erreurs', $globalStats['errors']],
                 ['Durée', sprintf('%s sec', $duration)],
@@ -193,9 +198,10 @@ class FetchFormsCommand extends Command
             $io->success('✅ Aucun nouveau CR à traiter');
         } else {
             $io->success(sprintf(
-                '✅ %d CR traités, %d équipements créés, %d jobs créés',
+                '✅ %d CR traités, %d équipements créés, %d photos référencées, %d jobs créés',
                 $globalStats['forms_processed'],
                 $globalStats['equipments_created'],
+                $globalStats['photos_created'],
                 $globalStats['jobs_created']
             ));
         }
@@ -242,6 +248,7 @@ class FetchFormsCommand extends Command
             'forms' => 0,
             'equipments_created' => 0,
             'equipments_skipped' => 0,
+            'photos_created' => 0,
             'jobs_created' => 0,
             'errors' => 0,
         ];
@@ -295,6 +302,7 @@ class FetchFormsCommand extends Command
                 $stats['forms']++;
                 $stats['equipments_created'] += $formStats['equipments_created'];
                 $stats['equipments_skipped'] += $formStats['equipments_skipped'];
+                $stats['photos_created'] += $formStats['photos_created'];
                 $stats['jobs_created'] += $formStats['jobs_created'];
                 $stats['errors'] += $formStats['errors'];
             }
@@ -335,6 +343,7 @@ class FetchFormsCommand extends Command
         $stats = [
             'equipments_created' => 0,
             'equipments_skipped' => 0,
+            'photos_created' => 0,
             'jobs_created' => 0,
             'errors' => 0,
         ];
@@ -401,6 +410,25 @@ class FetchFormsCommand extends Command
                 ));
             }
 
+            // 2.5. PERSISTANCE PHOTOS : Référencer les médias dans la table `photos`
+            if (!$dryRun) {
+                $photoResult = $this->photoPersister->persist(
+                    $extractedData,
+                    $agencyCode,
+                    $formId,
+                    (int) $dataId,
+                    $generatedNumbers
+                );
+                $stats['photos_created'] = $photoResult['created'];
+            } else {
+                $stats['photos_created'] = count($extractedData->contractEquipments)
+                    + count($extractedData->offContractEquipments);
+            }
+
+            if ($isVerbose) {
+                $io->text(sprintf('         📷 %d référence(s) photo créée(s)', $stats['photos_created']));
+            }
+
             // 3. CRÉATION JOBS : PDF + Photos
             if (!$dryRun) {
                 $jobsResult = $this->jobCreator->createJobs($extractedData, $agencyCode, $generatedNumbers);
@@ -431,6 +459,7 @@ class FetchFormsCommand extends Command
                 'data_id' => $dataId,
                 'id_contact' => $extractedData->idContact,
                 'equipments_created' => $stats['equipments_created'],
+                'photos_created' => $stats['photos_created'],
                 'jobs_created' => $stats['jobs_created'],
             ]);
 
