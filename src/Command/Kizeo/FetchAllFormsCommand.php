@@ -10,6 +10,7 @@ use App\Service\Kizeo\JobCreator;
 use App\Service\Kizeo\KizeoApiService;
 use App\Service\Kizeo\PhotoPersister;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\Persistence\ManagerRegistry;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -60,7 +61,8 @@ class FetchAllFormsCommand extends Command
         private readonly JobCreator $jobCreator,
         private readonly AgencyRepository $agencyRepository,
         private readonly KizeoJobRepository $jobRepository,
-        private readonly EntityManagerInterface $em,
+        private EntityManagerInterface $em,
+        private readonly ManagerRegistry $doctrine,
         private readonly LoggerInterface $kizeoLogger,
     ) {
         parent::__construct();
@@ -469,10 +471,8 @@ class FetchAllFormsCommand extends Command
 
             // Réouvrir l'EntityManager s'il a été fermé par une exception SQL
             if (!$this->em->isOpen()) {
-                $this->em = $this->em->create(
-                    $this->em->getConnection(),
-                    $this->em->getConfiguration()
-                );
+                $this->doctrine->resetManager();
+                $this->em = $this->doctrine->getManager();
             }
 
             $this->kizeoLogger->error('Erreur traitement CR (fetch-all)', [
