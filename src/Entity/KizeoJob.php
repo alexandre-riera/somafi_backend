@@ -111,6 +111,12 @@ class KizeoJob
      */
     #[ORM\Column(type: Types::STRING, length: 255, nullable: true)]
     private ?string $clientName = null;
+    
+    /**
+     * Date de la visite (extrait du CR technicien, format YYYYMMDD) - optionnel, peut être dérivé de dataId
+     */
+    #[ORM\Column(type: Types::STRING, length: 10, nullable: true)]
+    private ?string $dateVisite = null;
 
     /**
      * Statut du job : pending, processing, done, failed
@@ -223,7 +229,8 @@ class KizeoJob
         int $idContact,
         string $annee,
         string $visite,
-        ?string $clientName = null
+        ?string $clientName = null,
+        ?string $dateVisite = null  // ← NOUVEAU (optionnel pour rétrocompat)
     ): self {
         $job = new self();
         $job->jobType = self::TYPE_PDF;
@@ -234,7 +241,8 @@ class KizeoJob
         $job->annee = $annee;
         $job->visite = strtoupper($visite);
         $job->clientName = $clientName;
-        $job->priority = self::PRIORITY_URGENT; // PDF prioritaires
+        $job->dateVisite = $dateVisite;  // ← NOUVEAU
+        $job->priority = self::PRIORITY_URGENT;
         
         return $job;
     }
@@ -436,6 +444,11 @@ class KizeoJob
         return $this->clientName;
     }
 
+    public function getDateVisite(): ?string
+    {
+        return $this->dateVisite;
+    }
+
     public function getStatus(): string
     {
         return $this->status;
@@ -513,4 +526,5 @@ class KizeoJob
         $this->equipmentNumero = $equipmentNumero;
         return $this;
     }
+
 }

@@ -105,6 +105,27 @@
                             </a>
                         </li>
                         {% endif %}
+                        {# Menu Contrats Cadre - visible pour ADMIN et CC_ADMIN #}
+                        {% if is_granted('ROLE_CC_ADMIN') or is_granted('ROLE_ADMIN') %}
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-briefcase"></i> Contrats Cadre
+                                </a>
+                                <ul class="dropdown-menu">
+                                    {% for cc in contrats_cadre_actifs %}
+                                        <li>
+                                            <a class="dropdown-item" href="{{ path('app_contrat_cadre_sites', {slug: cc.slug}) }}">
+                                                <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{{ cc.primaryColor ?? '#666' }};margin-right:8px;"></span>
+                                                {{ cc.nom }}
+                                            </a>
+                                        </li>
+                                    {% endfor %}
+                                    {% if contrats_cadre_actifs is empty %}
+                                        <li><span class="dropdown-item text-muted">Aucun contrat cadre</span></li>
+                                    {% endif %}
+                                </ul>
+                            </li>
+                        {% endif %}
                     {% endif %}
                 </ul>
                 

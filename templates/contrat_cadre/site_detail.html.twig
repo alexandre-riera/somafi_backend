@@ -216,6 +216,9 @@
         max-width: 300px;
     }
 
+    /* =====================================================
+       PHASE 1C - Section fichiers + upload
+       ===================================================== */
     .files-section {
         background: white;
         border-radius: 8px;
@@ -223,8 +226,15 @@
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
-    .files-section h3 {
-        margin: 0 0 1rem;
+    .files-section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .files-section-header h3 {
+        margin: 0;
         font-size: 1rem;
         color: #333;
     }
@@ -232,12 +242,10 @@
     .file-item {
         display: flex;
         align-items: center;
-        padding: 0.75rem;
+        padding: 0.75rem 1rem;
         background: #f8f9fa;
         border-radius: 4px;
         margin-bottom: 0.5rem;
-        text-decoration: none;
-        color: inherit;
         transition: all 0.2s;
     }
 
@@ -245,19 +253,73 @@
         background: var(--cc-primary-light);
     }
 
-    .file-item i {
+    .file-item .file-icon {
         color: var(--cc-primary);
         margin-right: 0.75rem;
         font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+
+    .file-item .file-info {
+        flex: 1;
+        min-width: 0;
     }
 
     .file-item .file-name {
-        flex: 1;
         font-weight: 500;
+        color: #333;
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
-    .file-item .download-icon {
-        color: #666;
+    .file-item .file-meta {
+        font-size: 0.75rem;
+        color: #999;
+        margin-top: 2px;
+    }
+
+    .file-item .file-actions {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-shrink: 0;
+        margin-left: 1rem;
+    }
+
+    .file-item .file-actions a,
+    .file-item .file-actions button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+    }
+
+    .btn-download {
+        background: var(--cc-primary);
+        color: white;
+    }
+
+    .btn-download:hover {
+        opacity: 0.85;
+        color: white;
+    }
+
+    .btn-delete-file {
+        background: transparent;
+        color: #dc3545;
+        font-size: 1rem;
+    }
+
+    .btn-delete-file:hover {
+        background: #f8d7da;
     }
 
     .no-files {
@@ -275,18 +337,164 @@
         color: #666;
     }
 
-    .back-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
-        color: var(--cc-primary);
-        text-decoration: none;
+    /* Upload form */
+    .upload-zone {
+        margin-top: 1.25rem;
+        padding-top: 1.25rem;
+        border-top: 1px dashed #ddd;
+    }
+
+    .upload-zone h4 {
+        font-size: 0.875rem;
+        color: #666;
+        margin: 0 0 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+
+    .upload-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: flex-end;
+    }
+
+    .upload-form .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .upload-form .form-group label {
+        font-size: 0.75rem;
+        color: #666;
         font-weight: 500;
     }
 
-    .back-link:hover {
-        text-decoration: underline;
+    .upload-form .form-group input[type="text"] {
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        width: 220px;
+    }
+
+    .upload-form .form-group input[type="text"]:focus {
+        outline: none;
+        border-color: var(--cc-primary);
+    }
+
+    .upload-form .form-group input[type="file"] {
+        font-size: 0.85rem;
+    }
+
+    .btn-upload {
+        padding: 0.5rem 1.25rem;
+        background: var(--cc-primary);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        white-space: nowrap;
+    }
+
+    .btn-upload:hover {
+        opacity: 0.85;
+    }
+
+    .btn-upload:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Flash messages */
+    .flash-messages {
+        margin-bottom: 1rem;
+    }
+
+    .flash-messages .alert {
+        padding: 0.75rem 1rem;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .alert-success {
+        background: #d1e7dd;
+        color: #0f5132;
+        border: 1px solid #badbcc;
+    }
+
+    .alert-error {
+        background: #f8d7da;
+        color: #842029;
+        border: 1px solid #f5c2c7;
+    }
+
+    /* Modal confirmation suppression */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .modal-overlay.active {
+        display: flex;
+    }
+
+    .modal-box {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+
+    .modal-box h4 {
+        margin: 0 0 0.75rem;
+        color: #333;
+    }
+
+    .modal-box p {
+        color: #666;
+        margin: 0 0 1.25rem;
+        font-size: 0.9rem;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+    }
+
+    .btn-cancel {
+        padding: 0.5rem 1rem;
+        background: #f8f9fa;
+        color: #333;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .btn-confirm-delete {
+        padding: 0.5rem 1rem;
+        background: #dc3545;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
     }
 
     @media (max-width: 768px) {
@@ -308,6 +516,21 @@
         .info-grid {
             grid-template-columns: 1fr;
         }
+
+        .upload-form {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .upload-form .form-group input[type="text"] {
+            width: 100%;
+        }
+
+        .files-section-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
     }
 </style>
 {% endblock %}
@@ -317,13 +540,24 @@
 <div class="cc-header">
     <div class="container">
         <a href="{{ path('app_contrat_cadre_sites', {slug: contrat_cadre.slug}) }}">
-            ← Retour à la liste des sites
+            &larr; Retour &agrave; la liste des sites
         </a>
         <h1>{{ site.raison_sociale }}</h1>
     </div>
 </div>
 
 <div class="container">
+    {# Flash messages #}
+    {% for label, messages in app.flashes %}
+        <div class="flash-messages">
+            {% for message in messages %}
+                <div class="alert alert-{{ label }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endfor %}
+
     {# Informations du site #}
     <div class="site-info-card">
         <h2>Informations du site</h2>
@@ -341,7 +575,7 @@
                 <div class="value">{{ site.contact_site ?? '-' }}</div>
             </div>
             <div class="info-item">
-                <div class="label">Téléphone</div>
+                <div class="label">T&eacute;l&eacute;phone</div>
                 <div class="value">{{ site.telephone ?? '-' }}</div>
             </div>
             <div class="info-item">
@@ -363,7 +597,7 @@
     <div class="filters-bar">
         <form method="GET" id="filterForm" class="d-flex gap-3 flex-wrap align-items-center">
             <div class="filter-group">
-                <label for="annee">Année :</label>
+                <label for="annee">Ann&eacute;e :</label>
                 <select name="annee" id="annee" onchange="document.getElementById('filterForm').submit()">
                     {% for year in years %}
                         <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>
@@ -386,7 +620,7 @@
         </form>
 
         <div class="stats-row">
-            <span class="stat-badge total">{{ stats.total }} équipement(s)</span>
+            <span class="stat-badge total">{{ stats.total }} &eacute;quipement(s)</span>
             {% if stats.au_contrat > 0 %}
                 <span class="stat-badge contrat">{{ stats.au_contrat }} au contrat</span>
             {% endif %}
@@ -401,16 +635,16 @@
         {% set equipContrat = equipments|filter(e => not e.is_hors_contrat) %}
         {% if equipContrat|length > 0 %}
             <div class="equipment-section">
-                <h3>🔧 Équipements au contrat ({{ equipContrat|length }})</h3>
+                <h3>&#128295; &Eacute;quipements au contrat ({{ equipContrat|length }})</h3>
                 <table class="equipment-table">
                     <thead>
                         <tr>
-                            <th>N°</th>
+                            <th>N&deg;</th>
                             <th>Type</th>
                             <th>Marque</th>
-                            <th>Repère site</th>
+                            <th>Rep&egrave;re site</th>
                             <th>MES</th>
-                            <th>État</th>
+                            <th>&Eacute;tat</th>
                             <th>Anomalies</th>
                         </tr>
                     </thead>
@@ -426,8 +660,8 @@
                                     {% if equip.statut_equipement %}
                                         <span class="status-dot {{ equip.statut_equipement }}"></span>
                                         <span class="status-label {{ equip.statut_equipement }}">
-                                            {% if equip.statut_equipement == 'A' %}Bon état
-                                            {% elseif equip.statut_equipement == 'B' %}Travaux à prévoir
+                                            {% if equip.statut_equipement == 'A' %}Bon &eacute;tat
+                                            {% elseif equip.statut_equipement == 'B' %}Travaux &agrave; pr&eacute;voir
                                             {% elseif equip.statut_equipement == 'C' %}Urgent
                                             {% else %}{{ equip.statut_equipement }}
                                             {% endif %}
@@ -450,16 +684,16 @@
         {% set equipHorsContrat = equipments|filter(e => e.is_hors_contrat) %}
         {% if equipHorsContrat|length > 0 %}
             <div class="equipment-section">
-                <h3 class="hors-contrat">⚠️ Équipements hors contrat ({{ equipHorsContrat|length }})</h3>
+                <h3 class="hors-contrat">&#9888;&#65039; &Eacute;quipements hors contrat ({{ equipHorsContrat|length }})</h3>
                 <table class="equipment-table">
                     <thead>
                         <tr>
-                            <th>N°</th>
+                            <th>N&deg;</th>
                             <th>Type</th>
                             <th>Marque</th>
-                            <th>Repère site</th>
+                            <th>Rep&egrave;re site</th>
                             <th>MES</th>
-                            <th>État</th>
+                            <th>&Eacute;tat</th>
                             <th>Anomalies</th>
                         </tr>
                     </thead>
@@ -475,8 +709,8 @@
                                     {% if equip.statut_equipement %}
                                         <span class="status-dot {{ equip.statut_equipement }}"></span>
                                         <span class="status-label {{ equip.statut_equipement }}">
-                                            {% if equip.statut_equipement == 'A' %}Bon état
-                                            {% elseif equip.statut_equipement == 'B' %}Travaux à prévoir
+                                            {% if equip.statut_equipement == 'A' %}Bon &eacute;tat
+                                            {% elseif equip.statut_equipement == 'B' %}Travaux &agrave; pr&eacute;voir
                                             {% elseif equip.statut_equipement == 'C' %}Urgent
                                             {% else %}{{ equip.statut_equipement }}
                                             {% endif %}
@@ -497,28 +731,154 @@
     {% else %}
         <div class="equipment-section">
             <div class="no-equipments">
-                <p>Aucun équipement trouvé pour cette visite</p>
-                <p class="text-muted">Sélectionnez une autre année ou visite dans les filtres ci-dessus</p>
+                <p>Aucun &eacute;quipement trouv&eacute; pour cette visite</p>
+                <p class="text-muted">S&eacute;lectionnez une autre ann&eacute;e ou visite dans les filtres ci-dessus</p>
             </div>
         </div>
     {% endif %}
 
-    {# Fichiers disponibles #}
+    {# ================================================================
+       PHASE 1C - Section Documents avec upload
+       ================================================================ #}
     <div class="files-section">
-        <h3>📄 Documents disponibles</h3>
+        <div class="files-section-header">
+            <h3>&#128196; Documents disponibles ({{ files|length }})</h3>
+        </div>
+
         {% if files|length > 0 %}
             {% for file in files %}
-                <a href="{{ asset('uploads/cc/' ~ file.path) }}" class="file-item" target="_blank" download>
-                    <i class="bi bi-file-pdf"></i>
-                    <span class="file-name">{{ file.name }}</span>
-                    <span class="download-icon">↓</span>
-                </a>
+                <div class="file-item">
+                    <span class="file-icon">&#128196;</span>
+                    <div class="file-info">
+                        <span class="file-name">{{ file.name }}</span>
+                        <span class="file-meta">
+                            {% if file.file_size %}
+                                {{ (file.file_size / 1024)|round(0) }} Ko
+                            {% endif %}
+                            {% if file.uploaded_at %}
+                                &middot; {{ file.uploaded_at|date('d/m/Y H:i') }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="file-actions">
+                        {# Bouton téléchargement #}
+                        <a href="{{ path('app_contrat_cadre_download', {slug: contrat_cadre.slug, fileId: file.id}) }}" 
+                           class="btn-download" 
+                           title="T&eacute;l&eacute;charger">
+                            &#8595;
+                        </a>
+                        {# Bouton suppression (admin CC uniquement) #}
+                        {% if can_upload is defined and can_upload %}
+                            <button type="button" 
+                                    class="btn-delete-file" 
+                                    title="Supprimer"
+                                    onclick="confirmDelete({{ file.id }}, '{{ file.name|e('js') }}')">
+                                &#10005;
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
             {% endfor %}
         {% else %}
             <div class="no-files">
                 Aucun document disponible pour le moment
             </div>
         {% endif %}
+
+        {# Formulaire d'upload (visible uniquement pour les admins CC) #}
+        {% if can_upload is defined and can_upload %}
+            <div class="upload-zone">
+                <h4>&#128228; Ajouter un document</h4>
+                <form action="{{ path('app_contrat_cadre_upload', {
+                        slug: contrat_cadre.slug, 
+                        agencyCode: agency_code, 
+                        idContact: id_contact
+                      }) }}" 
+                      method="POST" 
+                      enctype="multipart/form-data"
+                      class="upload-form"
+                      id="uploadForm">
+                    
+                    <div class="form-group">
+                        <label for="file_name">Nom du document (optionnel)</label>
+                        <input type="text" 
+                               name="file_name" 
+                               id="file_name" 
+                               placeholder="Ex: CR Visite Janvier 2026"
+                               maxlength="200">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="cr_file">Fichier PDF (max 20 Mo)</label>
+                        <input type="file" 
+                               name="cr_file" 
+                               id="cr_file" 
+                               accept="application/pdf,.pdf"
+                               required>
+                    </div>
+
+                    <button type="submit" class="btn-upload" id="btnUpload">
+                        &#128228; Uploader
+                    </button>
+                </form>
+            </div>
+        {% endif %}
     </div>
 </div>
+
+{# Modal de confirmation de suppression #}
+{% if can_upload is defined and can_upload %}
+<div class="modal-overlay" id="deleteModal">
+    <div class="modal-box">
+        <h4>Confirmer la suppression</h4>
+        <p>Supprimer le fichier &laquo;&nbsp;<strong id="deleteFileName"></strong>&nbsp;&raquo; ? Cette action est irr&eacute;versible.</p>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeDeleteModal()">Annuler</button>
+            <form id="deleteForm" method="POST" style="display: inline;">
+                <input type="hidden" name="_token" id="deleteToken" value="">
+                <button type="submit" class="btn-confirm-delete">Supprimer</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block javascripts %}
+{{ parent() }}
+{% if can_upload is defined and can_upload %}
+<script>
+    // Upload : feedback visuel
+    document.getElementById('uploadForm')?.addEventListener('submit', function() {
+        const btn = document.getElementById('btnUpload');
+        btn.disabled = true;
+        btn.innerHTML = '&#8987; Upload en cours...';
+    });
+
+    // Suppression : modal de confirmation
+    function confirmDelete(fileId, fileName) {
+        const modal = document.getElementById('deleteModal');
+        const form = document.getElementById('deleteForm');
+        const nameEl = document.getElementById('deleteFileName');
+        const tokenEl = document.getElementById('deleteToken');
+
+        nameEl.textContent = fileName;
+        // CSRF token unique pour les suppressions CC
+        tokenEl.value = '{{ csrf_token("delete_cc_file") }}';
+        // Construire l'URL de suppression avec le bon fileId
+        form.action = '{{ path("app_contrat_cadre_delete_file", {slug: contrat_cadre.slug, fileId: 999999}) }}'.replace('999999', fileId);
+
+        modal.classList.add('active');
+    }
+
+    function closeDeleteModal() {
+        document.getElementById('deleteModal').classList.remove('active');
+    }
+
+    // Fermer le modal en cliquant en dehors
+    document.getElementById('deleteModal')?.addEventListener('click', function(e) {
+        if (e.target === this) closeDeleteModal();
+    });
+</script>
+{% endif %}
 {% endblock %}
