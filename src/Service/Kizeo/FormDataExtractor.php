@@ -14,6 +14,13 @@ use Psr\Log\LoggerInterface;
  * 
  * Parse un formulaire CR Technicien et retourne un DTO structuré
  * contenant les informations du client, les équipements et les médias.
+ * 
+ * CORRECTIONS 06/02/2026:
+ * - FIX #1 CRITIQUE: Scan dynamique de TOUS les champs type=photo au lieu
+ *   d'une liste hardcodée incomplète (aucune photo n'était extraite)
+ * - FIX #2: HC medias utilisent equipmentIndex au lieu d'un placeholder "HC_x"
+ *   (permettant la résolution via generatedNumbers dans PhotoPersister)
+ * - FIX #3: HC type équipement extrait depuis "nature" (pas "type_equipement")
  */
 class FormDataExtractor
 {
@@ -57,7 +64,7 @@ class FormDataExtractor
         // 3. Extraire les équipements hors contrat
         $offContractEquipments = $this->extractOffContractEquipments($fields);
 
-        // 4. Extraire les médias (photos)
+        // 4. Extraire les médias (photos) — scan dynamique de tous les champs type=photo
         $medias = $this->extractMedias($fields, $contractEquipments, $offContractEquipments);
 
         $extracted = new ExtractedFormData(
@@ -296,26 +303,42 @@ class FormDataExtractor
 
     /**
      * Parse un équipement hors contrat depuis le JSON
+     * 
+     * CORRECTION 06/02/2026:
+     * - Le type HC vient de "nature" (pas "type_equipement")
+     * - Le code état HC vient de "etat1" (pas "etat")
      */
     private function parseOffContractEquipment(array $item, int $index): ?ExtractedEquipment
     {
-        // Pour hors contrat, on prend tout - le numéro sera généré plus tard
-        $typeEquipement = $this->getNestedValue($item, 'type_equipement', 'value')
+        // FIX #3: Pour hors contrat, le type vient de "nature" (ex: "Rideau métallique")
+        $typeEquipement = $this->getNestedValue($item, 'nature', 'value')
+            ?? $this->getNestedValue($item, 'type_equipement', 'value')
             ?? $this->getNestedValue($item, 'type', 'value');
 
         return ExtractedEquipment::createOffContract(
             kizeoIndex: $index,
             typeEquipement: $typeEquipement,
             marque: $this->getNestedValue($item, 'marque', 'value'),
-            etatEquipement: $this->getNestedValue($item, 'etat_equipement', 'value')
+            // FIX: le code état HC est dans "etat1" (pas "etat")
+            etatEquipement: $this->getNestedValue($item, 'etat1', 'value')
+                ?? $this->getNestedValue($item, 'etat_equipement', 'value')
                 ?? $this->getNestedValue($item, 'etat', 'value'),
             anomalies: $this->extractAnomalies($item),
             rawData: $item,
         );
     }
 
+    // =========================================================================
+    // EXTRACTION DES MÉDIAS (PHOTOS)
+    // =========================================================================
+
     /**
-     * Extrait les médias (photos) depuis les champs du formulaire
+     * Extrait les médias (photos) depuis les sous-formulaires
+     * 
+     * CORRECTION 06/02/2026:
+     * Scan DYNAMIQUE de tous les champs avec type=photo et valeur non vide,
+     * au lieu d'une liste hardcodée qui ne correspondait pas aux vrais noms
+     * de champs Kizeo (photo_etiquette_somafi, photo2, photo3, etc.)
      * 
      * @param array $fields Champs du formulaire
      * @param ExtractedEquipment[] $contractEquipments Équipements au contrat
@@ -329,115 +352,123 @@ class FormDataExtractor
     ): array {
         $medias = [];
 
-        // 1. Photos des équipements au contrat
+        // =====================================================================
+        // 1. Photos des équipements AU CONTRAT (contrat_de_maintenance)
+        // Scan dynamique : on parcourt TOUS les champs de chaque équipement
+        // et on garde ceux qui ont type=photo + value non vide
+        // =====================================================================
         $contractData = $fields['contrat_de_maintenance']['value'] ?? [];
         if (is_array($contractData)) {
             foreach ($contractData as $index => $item) {
                 $equipmentNumero = $this->getNestedValue($item, 'equipement', 'value');
-                if ($equipmentNumero === null) {
+                if ($equipmentNumero === null || trim($equipmentNumero) === '') {
                     continue;
                 }
 
-                $this->extractEquipmentPhotos($item, $equipmentNumero, true, $medias);
+                $this->extractAllPhotoFields($item, trim($equipmentNumero), true, null, $medias);
             }
         }
 
-        // 2. Photos des équipements hors contrat
-        // Note: Le numéro sera assigné après génération dans EquipmentPersister
+        // =====================================================================
+        // 2. Photos des équipements HORS CONTRAT (tableau2)
+        // FIX #2: On utilise equipmentIndex (pas un placeholder "HC_x")
+        // Le numéro réel sera résolu par generatedNumbers dans PhotoPersister
+        // =====================================================================
         $offContractData = $fields['tableau2']['value'] ?? [];
         if (is_array($offContractData)) {
             foreach ($offContractData as $index => $item) {
-                // Pour hors contrat, on utilise un placeholder temporaire
-                // Le numéro réel sera assigné par JobCreator après persistance
-                $tempNumero = sprintf('HC_%d', $index);
-                $this->extractEquipmentPhotos($item, $tempNumero, false, $medias);
+                // equipmentNumero = null, sera résolu via equipmentIndex + generatedNumbers
+                $this->extractAllPhotoFields($item, null, false, $index, $medias);
             }
         }
 
         $this->kizeoLogger->debug('Médias extraits', [
-            'count' => count($medias),
+            'total' => count($medias),
+            'contract' => count(array_filter($medias, fn(ExtractedMedia $m) => $m->isContract)),
+            'off_contract' => count(array_filter($medias, fn(ExtractedMedia $m) => !$m->isContract)),
         ]);
 
         return $medias;
     }
 
     /**
-     * Extrait les photos d'un équipement
+     * Scanne DYNAMIQUEMENT tous les champs d'un équipement pour trouver les photos.
      * 
-     * @param array $equipmentData Données de l'équipement
-     * @param string $equipmentNumero Numéro de l'équipement
-     * @param bool $isContract Est-ce un équipement au contrat
+     * Au lieu d'une liste hardcodée de noms de champs, on inspecte chaque champ :
+     * - Si type === "photo" ET value non vide → on crée un ExtractedMedia
+     * - Le fieldName (clé du champ) est conservé tel quel pour le mapping vers
+     *   les colonnes de la table photos (avec résolution d'alias dans PhotoPersister)
+     * 
+     * Exemples de champs trouvés dynamiquement :
+     *   AU CONTRAT : photo_etiquette_somafi, photo2, photo_fixation_coulisse, 
+     *                photo_complementaire_equipeme, photo_coffret_de_commande...
+     *   HORS CONTRAT : photo_etiquette_somafi1, photo3, photo_plaque_signaletique...
+     * 
+     * @param array $equipmentData Données brutes de l'équipement (sous-formulaire)
+     * @param string|null $equipmentNumero Numéro d'équipement (null pour HC → résolu via index)
+     * @param bool $isContract Équipement au contrat ou hors contrat
+     * @param int|null $equipmentIndex Index dans tableau2 (HC uniquement)
      * @param ExtractedMedia[] &$medias Collection de médias (par référence)
      */
-    private function extractEquipmentPhotos(
+    private function extractAllPhotoFields(
         array $equipmentData,
-        string $equipmentNumero,
+        ?string $equipmentNumero,
         bool $isContract,
-        array &$medias
+        ?int $equipmentIndex,
+        array &$medias,
     ): void {
-        // Champs photos connus dans le formulaire Kizeo
-        $photoFields = [
-            'photo_generale' => ExtractedMedia::PHOTO_TYPE_GENERALE,
-            'photo_plaque' => ExtractedMedia::PHOTO_TYPE_PLAQUE,
-            'photo_plaque_signaletique' => ExtractedMedia::PHOTO_TYPE_PLAQUE,
-            'photo_environnement' => ExtractedMedia::PHOTO_TYPE_ENVIRONNEMENT,
-            'photo_anomalie' => ExtractedMedia::PHOTO_TYPE_ANOMALIE,
-            'photo_defaut' => ExtractedMedia::PHOTO_TYPE_ANOMALIE,
-            'photo' => ExtractedMedia::PHOTO_TYPE_GENERALE,
-        ];
+        foreach ($equipmentData as $fieldName => $fieldData) {
+            // Vérifier que c'est bien un champ structuré avec un type
+            if (!is_array($fieldData)) {
+                continue;
+            }
 
-        foreach ($photoFields as $fieldName => $photoType) {
-            $mediaNames = $this->extractMediaNames($equipmentData, $fieldName);
+            $fieldType = $fieldData['type'] ?? null;
+            $fieldValue = $fieldData['value'] ?? null;
 
-            foreach ($mediaNames as $index => $mediaName) {
+            // On ne garde que les champs de type "photo" avec une valeur non vide
+            if ($fieldType !== 'photo' || $fieldValue === null || $fieldValue === '') {
+                continue;
+            }
+
+            // Ignorer les images fixes du formulaire (icônes vert/orange/rouge)
+            if ($fieldType === 'fixed_image') {
+                continue;
+            }
+
+            // La valeur peut être un string ou un tableau de strings
+            $mediaNames = is_array($fieldValue)
+                ? array_filter($fieldValue, fn($v) => is_string($v) && $v !== '')
+                : (is_string($fieldValue) ? [$fieldValue] : []);
+
+            foreach ($mediaNames as $photoIndex => $mediaName) {
+                $photoType = ExtractedMedia::normalizePhotoType($fieldName);
+
                 if ($isContract) {
                     $medias[] = ExtractedMedia::createForContract(
                         mediaName: $mediaName,
                         equipmentNumero: $equipmentNumero,
                         photoType: $photoType,
-                        photoIndex: count($mediaNames) > 1 ? $index + 1 : null,
+                        photoIndex: count($mediaNames) > 1 ? $photoIndex + 1 : null,
                         fieldName: $fieldName,
                     );
                 } else {
+                    // FIX #2: Passer equipmentIndex pour que PhotoPersister puisse
+                    // résoudre le numéro via generatedNumbers[$equipmentIndex]
                     $medias[] = ExtractedMedia::createForOffContract(
                         mediaName: $mediaName,
-                        equipmentNumero: $equipmentNumero,
+                        equipmentNumero: $equipmentNumero ?? sprintf('HC_%d', $equipmentIndex),
                         fieldName: $fieldName,
+                        equipmentIndex: $equipmentIndex,
                     );
                 }
             }
         }
     }
 
-    /**
-     * Extrait les noms de médias depuis un champ
-     * 
-     * Le format peut être :
-     * - String simple : "photo_1.jpg"
-     * - Tableau : ["photo_1.jpg", "photo_2.jpg"]
-     * 
-     * @return string[]
-     */
-    private function extractMediaNames(array $data, string $fieldName): array
-    {
-        $value = $this->getNestedValue($data, $fieldName, 'value');
-
-        if ($value === null || $value === '') {
-            return [];
-        }
-
-        // Si c'est un tableau
-        if (is_array($value)) {
-            return array_filter($value, fn($v) => is_string($v) && $v !== '');
-        }
-
-        // Si c'est une string
-        if (is_string($value)) {
-            return [$value];
-        }
-
-        return [];
-    }
+    // =========================================================================
+    // HELPERS D'EXTRACTION
+    // =========================================================================
 
     /**
      * Extrait une valeur string depuis un champ

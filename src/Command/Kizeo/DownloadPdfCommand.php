@@ -15,10 +15,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * Commande de téléchargement des PDF techniciens depuis l'API Kizeo
- * 
- * Traite les jobs de type 'pdf' en status 'pending' dans la table kizeo_jobs.
- * Télécharge le PDF via l'API Kizeo et le sauvegarde localement.
+ * Télécharge les PDF techniciens depuis l'API Kizeo (traite les jobs PDF pending).
  * 
  * Usage:
  *   php bin/console app:kizeo:download-pdf                          # 30 jobs, chunks de 5
@@ -29,9 +26,15 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Stratégie mémoire :
  *   - Traitement par chunks (défaut: 5)
  *   - flush + clear de Doctrine entre chaque chunk
+ *   - Re-fetch des jobs à chaque chunk (fix détachement entités)
  *   - unset du contenu binaire PDF après sauvegarde
  *   - Seuil mémoire à 200 MB → GC forcé
- *   - Pause de 500ms entre chaque appel API (PDF = gros fichiers)
+ *   - Pause de 500ms entre chaque appel API
+ * 
+ * FIX 06/02/2026 : Les jobs étaient re-traités en boucle car $em->clear()
+ *   détachait les entités non encore traitées. Maintenant on re-fetch à chaque
+ *   chunk avec findPendingByType() — les jobs passés en 'done' ou 'failed'
+ *   ne remontent plus.
  */
 #[AsCommand(
     name: 'app:kizeo:download-pdf',
@@ -41,7 +44,7 @@ class DownloadPdfCommand extends Command
 {
     private const DEFAULT_LIMIT = 30;
     private const DEFAULT_CHUNK_SIZE = 5;
-    private const API_DELAY_MS = 500_000; // 500ms entre chaque appel API (PDF plus lourd)
+    private const API_DELAY_MS = 500_000; // 500ms entre chaque appel API
     private const MEMORY_CHECK_THRESHOLD = 200 * 1024 * 1024; // 200 MB
 
     public function __construct(
@@ -86,72 +89,78 @@ class DownloadPdfCommand extends Command
         $io->title('SOMAFI - Téléchargement PDF Techniciens Kizeo');
         $io->text(sprintf('📅 %s', (new \DateTime())->format('d/m/Y H:i:s')));
         $io->text(sprintf('⚙️  Limit: %d | Chunk: %d | Agence: %s',
-            $limit, $chunkSize, $agencyFilter ?? 'toutes'));
+            $limit, $chunkSize, $agencyFilter ?? 'TOUTES'));
 
         if ($dryRun) {
-            $io->warning('🔍 Mode DRY-RUN activé — aucun téléchargement ne sera effectué');
+            $io->warning('🔍 MODE DRY-RUN — Aucun téléchargement ne sera effectué');
         }
 
         $this->kizeoLogger->info('=== DÉBUT DOWNLOAD-PDF ===', [
             'limit' => $limit,
             'chunk_size' => $chunkSize,
-            'agency_filter' => $agencyFilter,
+            'agency' => $agencyFilter,
             'dry_run' => $dryRun,
         ]);
 
         // =============================================
-        // Étape 1 : Reset des jobs bloqués
+        // 1. Reset des jobs bloqués (> 1h en processing)
         // =============================================
         $resetCount = $this->jobRepository->resetStuckJobs(60);
         if ($resetCount > 0) {
-            $io->text(sprintf('🔄 %d job(s) bloqué(s) remis en pending', $resetCount));
-            $this->kizeoLogger->info('Jobs bloqués reset (download-pdf)', ['count' => $resetCount]);
+            $io->note(sprintf('♻️  %d job(s) bloqué(s) remis en pending', $resetCount));
+            $this->kizeoLogger->warning('Jobs bloqués resetés', ['count' => $resetCount]);
         }
 
         // =============================================
-        // Étape 2 : Récupérer les jobs PDF pending
+        // 2. Traitement chunk par chunk
+        //    FIX : On re-fetch à chaque itération au lieu de tout charger d'un coup.
+        //    Après flush + clear, les entités sont détachées.
+        //    findPendingByType() ne retourne QUE les 'pending', donc les jobs
+        //    déjà traités (done/failed) ne reviennent plus.
         // =============================================
-        $jobs = $this->fetchPendingJobs($limit, $agencyFilter);
-
-        if (empty($jobs)) {
-            $io->success('✅ Aucun job PDF en attente — rien à faire !');
-            $this->kizeoLogger->info('Aucun job PDF pending (download-pdf)');
-            return Command::SUCCESS;
-        }
-
-        $io->text(sprintf('📄 %d job(s) PDF à traiter', count($jobs)));
-        $io->newLine();
-
-        // =============================================
-        // Étape 3 : Traiter par chunks
-        // =============================================
-        $chunks = array_chunk($jobs, $chunkSize);
         $stats = [
-            'total' => count($jobs),
+            'total' => 0,
             'success' => 0,
             'failed' => 0,
             'skipped' => 0,
             'total_size' => 0,
         ];
 
-        foreach ($chunks as $chunkIndex => $chunk) {
-            $chunkNum = $chunkIndex + 1;
+        $totalProcessed = 0;
+        $chunkIndex = 0;
 
-            if ($isVerbose) {
-                $io->text(sprintf('   📦 Chunk %d/%d (%d jobs)', $chunkNum, count($chunks), count($chunk)));
+        while ($totalProcessed < $limit) {
+            // Combien de jobs on veut encore ?
+            $remaining = $limit - $totalProcessed;
+            $fetchSize = min($chunkSize, $remaining);
+
+            // Re-fetch à chaque itération : les jobs done/failed ne remontent plus
+            $jobs = $this->fetchPendingJobs($fetchSize, $agencyFilter);
+
+            if (empty($jobs)) {
+                if ($totalProcessed === 0) {
+                    $io->success('✅ Aucun job PDF en attente — rien à faire');
+                } else {
+                    $io->text('   → Plus de jobs pending, arrêt anticipé.');
+                }
+                break;
             }
+
+            $chunkIndex++;
+            $io->section(sprintf('📦 Chunk #%d (%d jobs)', $chunkIndex, count($jobs)));
 
             // Marquer le chunk comme "processing"
-            if (!$dryRun) {
-                foreach ($chunk as $job) {
-                    $job->markAsProcessing();
-                }
-                $this->em->flush();
+            foreach ($jobs as $job) {
+                $job->markAsProcessing();
             }
+            $this->em->flush();
 
             // Traiter chaque job du chunk
-            foreach ($chunk as $job) {
+            foreach ($jobs as $job) {
                 $result = $this->processJob($job, $dryRun, $isVerbose, $io);
+
+                $stats['total']++;
+                $totalProcessed++;
 
                 match ($result) {
                     'success' => $stats['success']++,
@@ -173,16 +182,16 @@ class DownloadPdfCommand extends Command
             if (!$dryRun) {
                 $this->em->flush();
                 $this->em->clear();
+                // Les entités sont détachées, mais au prochain tour de boucle
+                // on re-fetch des entités fraîches via fetchPendingJobs()
             }
 
             // Vérification mémoire
             $this->checkMemoryUsage($io);
 
-            // Progress
-            $processed = min(($chunkIndex + 1) * $chunkSize, $stats['total']);
             $io->text(sprintf(
                 '   → %d/%d traités | ✅ %d | ❌ %d | ⏭️ %d',
-                $processed, $stats['total'],
+                $totalProcessed, $limit,
                 $stats['success'], $stats['failed'], $stats['skipped']
             ));
         }
@@ -220,7 +229,10 @@ class DownloadPdfCommand extends Command
         ]);
 
         if ($stats['failed'] > 0) {
-            $io->warning(sprintf('⚠️ %d job(s) en échec — ils seront retentés au prochain CRON (si attempts < max)', $stats['failed']));
+            $io->warning(sprintf(
+                '⚠️ %d job(s) en échec — ils seront retentés au prochain CRON (si attempts < max)',
+                $stats['failed']
+            ));
         }
 
         $io->success(sprintf(
@@ -234,7 +246,11 @@ class DownloadPdfCommand extends Command
     }
 
     /**
-     * Récupère les jobs PDF pending, avec filtre optionnel par agence
+     * Récupère un chunk de jobs PDF pending.
+     * 
+     * IMPORTANT : Cette méthode est appelée À CHAQUE CHUNK, pas une seule fois.
+     * Après flush + clear, les entités précédentes sont détachées et les jobs 
+     * passés en done/failed ne sont plus retournés par le WHERE status = 'pending'.
      * 
      * @return KizeoJob[]
      */
@@ -303,8 +319,10 @@ class DownloadPdfCommand extends Command
         }
 
         try {
-            // Date de visite : champ dédié si disponible, sinon fallback sur created_at
-            $dateVisite = $job->getDateVisite() ?? $job->getCreatedAt()->format('Y-m-d');
+            // Date de visite : utiliser le champ dédié, sinon fallback sur created_at
+            $dateVisite = $job->getDateVisite()
+                ? $job->getDateVisite()->format('Y-m-d')
+                : $job->getCreatedAt()->format('Y-m-d');
 
             // Télécharger le PDF via le service
             $localPath = $this->pdfDownloader->download(
@@ -319,19 +337,15 @@ class DownloadPdfCommand extends Command
             );
 
             if ($localPath !== null) {
-                // Succès
                 $fileSize = file_exists($localPath) ? filesize($localPath) : 0;
                 $job->markAsDone($localPath, $fileSize);
 
                 if ($isVerbose) {
-                    $io->text(sprintf('      ✅ %s → %s (%s KB)',
-                        $jobInfo,
-                        basename($localPath),
-                        round($fileSize / 1024, 1)
-                    ));
+                    $io->text(sprintf('      ✅ %s → %s (%.1f KB)',
+                        $jobInfo, basename($localPath), $fileSize / 1024));
                 }
 
-                $this->kizeoLogger->info('PDF téléchargé avec succès', [
+                $this->kizeoLogger->info('PDF téléchargé', [
                     'job_id' => $job->getId(),
                     'path' => $localPath,
                     'size' => $fileSize,
@@ -340,35 +354,28 @@ class DownloadPdfCommand extends Command
                 return 'success';
             }
 
-            // Échec retourné par le downloader (null = erreur API ou écriture)
-            $job->markAsFailed('KizeoPdfDownloader returned null');
+            // Null retourné = échec silencieux du service
+            $job->markAsFailed('KizeoPdfDownloader retourné null');
 
-            if ($isVerbose) {
-                $io->text(sprintf('      ❌ %s — échec téléchargement (attempt %d/%d)',
-                    $jobInfo, $job->getAttempts(), KizeoJob::MAX_ATTEMPTS));
-            }
-
-            $this->kizeoLogger->error('Échec téléchargement PDF', [
+            $this->kizeoLogger->error('PDF download retourné null', [
                 'job_id' => $job->getId(),
                 'form_id' => $job->getFormId(),
                 'data_id' => $job->getDataId(),
-                'attempt' => $job->getAttempts(),
             ]);
 
             return 'failed';
 
-        } catch (\Exception $e) {
-            $job->markAsFailed($e->getMessage());
+        } catch (\Throwable $e) {
+            $errorMsg = sprintf('%s: %s', get_class($e), $e->getMessage());
+            $job->markAsFailed($errorMsg);
 
             if ($isVerbose) {
-                $io->text(sprintf('      ❌ %s — Exception: %s', $jobInfo, $e->getMessage()));
+                $io->text(sprintf('      ❌ %s — %s', $jobInfo, $e->getMessage()));
             }
 
-            $this->kizeoLogger->error('Exception téléchargement PDF', [
+            $this->kizeoLogger->error('Erreur download PDF', [
                 'job_id' => $job->getId(),
-                'form_id' => $job->getFormId(),
-                'data_id' => $job->getDataId(),
-                'error' => $e->getMessage(),
+                'error' => $errorMsg,
                 'attempt' => $job->getAttempts(),
             ]);
 
@@ -377,23 +384,25 @@ class DownloadPdfCommand extends Command
     }
 
     /**
-     * Vérifie l'utilisation mémoire et déclenche un GC si nécessaire
+     * Vérifie l'utilisation mémoire et force le GC si nécessaire
      */
     private function checkMemoryUsage(SymfonyStyle $io): void
     {
-        $currentMemory = memory_get_usage(true);
+        $memoryUsage = memory_get_usage(true);
 
-        if ($currentMemory > self::MEMORY_CHECK_THRESHOLD) {
-            $beforeMb = round($currentMemory / 1024 / 1024, 1);
-
-            $this->em->clear();
+        if ($memoryUsage > self::MEMORY_CHECK_THRESHOLD) {
             gc_collect_cycles();
+            $afterGc = memory_get_usage(true);
 
-            $afterMb = round(memory_get_usage(true) / 1024 / 1024, 1);
+            $io->text(sprintf(
+                '   🧹 GC forcé : %.1f MB → %.1f MB',
+                $memoryUsage / 1024 / 1024,
+                $afterGc / 1024 / 1024
+            ));
 
-            $this->kizeoLogger->info('Memory cleanup (download-pdf)', [
-                'before_mb' => $beforeMb,
-                'after_mb' => $afterMb,
+            $this->kizeoLogger->info('GC forcé (seuil mémoire)', [
+                'before_mb' => round($memoryUsage / 1024 / 1024, 1),
+                'after_mb' => round($afterGc / 1024 / 1024, 1),
             ]);
         }
     }

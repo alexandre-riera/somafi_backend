@@ -17,6 +17,13 @@ use Psr\Log\LoggerInterface;
  * - Parse le JSON et extrait les équipements (contrat + hors contrat)
  * - Déduplique avant enregistrement
  * - Marque les formulaires comme lus
+ * 
+ * CORRECTIONS 06/02/2026:
+ * - Fix extraction anomalies (accès direct valuesAsArray, bypass getEquipDataValue)
+ * - Fix HC: utilise nature.value pour déduire le trigramme au lieu de reference7
+ * - Fix HC: mapping champs spécifiques (etat1, localisation_site_client1, etc.)
+ * - Fix HC: calculateStatusFromFields avec noms de champs HC (_equi_sup)
+ * - Mise à jour mapping trigrammes (PAU, PMO, PMA, BLE, PPV, TOU, BRO, BUT, TEL)
  */
 class KizeoFormProcessor
 {
@@ -194,6 +201,10 @@ class KizeoFormProcessor
         return $result;
     }
 
+    // =========================================================================
+    // HELPERS D'EXTRACTION DE VALEURS KIZEO
+    // =========================================================================
+
     /**
      * Extrait la valeur d'un champ de l'équipement
      * Gère les différentes structures de données Kizeo (value, valuesAsArray, etc.)
@@ -221,9 +232,9 @@ class KizeoFormProcessor
             
             // Pour les selects multiples, retourner valuesAsArray si disponible
             if (!empty($field['valuesAsArray']) && is_array($field['valuesAsArray'])) {
-                $filtered = array_filter($field['valuesAsArray'], fn($v) => !empty(trim((string)$v)));
+                $filtered = array_filter($field['valuesAsArray'], fn($v) => is_string($v) && trim($v) !== '');
                 if (!empty($filtered)) {
-                    return $filtered;
+                    return array_values($filtered); // Reset des clés pour éviter les soucis
                 }
             }
             
@@ -241,56 +252,149 @@ class KizeoFormProcessor
         return null;
     }
 
+    // =========================================================================
+    // EXTRACTION DES ANOMALIES (FIX 06/02/2026)
+    // =========================================================================
+
     /**
-     * Extrait toutes les anomalies d'un équipement
-     * Les anomalies sont réparties dans plusieurs champs selon le type d'équipement
+     * Liste de tous les champs d'anomalies possibles dans le subform contrat_de_maintenance
      * 
-     * @param array<string, mixed> $equipData Données de l'équipement
-     * @return string|null Anomalies concaténées séparées par " | " ou null si aucune
+     * Chaque équipement au contrat contient TOUS ces champs, mais seuls ceux
+     * correspondant au type d'équipement sont visibles (hidden=false).
+     * Les autres sont masqués (hidden=true) avec valuesAsArray=[""].
+     * 
+     * On scanne TOUS les champs et on collecte les valeurs non vides.
+     */
+    private const ANOMALIE_FIELDS_CONTRAT = [
+        'anomalies_sec_',                   // Portes sectionnelles
+        'anomalie_rapide',                  // Portes rapides  
+        'anomalie_rid_vor',                 // Rideaux/Volets roulants
+        'anomalie_portail',                 // Portails
+        'anomalie_niv_plq_mip_tel_blr_',    // Niveleurs/Plaques/MIP/Télescopiques/BLR
+        'anomalie_sas',                     // SAS
+        'anomalie_ble1',                    // Barrières levantes
+        'anomalie_tou1',                    // Tourniquets
+        'anomalie_ppv_cfe',                 // PPV/CFE
+        'anomalie_sec_rid_rap_vor_pac',     // Combinaison SEC/RID/RAP/VOR/PAC
+        'anomalie_portail_auto_moto',       // Portails auto/motorisés
+        'anomalie_cfe_ppv_auto_moto',       // CFE/PPV auto/motorisés
+        'anomalie_ble_moto_auto',           // Barrières motorisées/auto
+        'anomalie_hydraulique',             // Équipements hydrauliques
+    ];
+
+    /**
+     * Extrait toutes les anomalies d'un équipement AU CONTRAT
+     * 
+     * FIX 06/02/2026: Accès DIRECT aux données brutes du champ au lieu de passer
+     * par getEquipDataValue(), pour éviter les edge cases de filtrage sur les
+     * champs select multiples Kizeo (valuesAsArray avec strings vides).
+     * 
+     * @param array<string, mixed> $equipData Données brutes de l'équipement
+     * @return string|null Anomalies concaténées par " | ", ou null si aucune
      */
     private function extractAnomalies(array $equipData): ?string
     {
-        // Liste de tous les champs d'anomalies possibles dans Kizeo
-        $anomalieFields = [
-            'anomalies_sec_',                   // Portes sectionnelles
-            'anomalie_rapide',                  // Portes rapides  
-            'anomalie_rid_vor',                 // Rideaux/Volets
-            'anomalie_portail',                 // Portails
-            'anomalie_niv_plq_mip_tel_blr_',    // Niveleurs/Plaques/MIP/Télescopiques/BLR
-            'anomalie_sas',                     // SAS
-            'anomalie_ble1',                    // Barrières levantes
-            'anomalie_tou1',                    // Tourniquets
-            'anomalie_ppv_cfe',                 // PPV/CFE
-            'anomalie_sec_rid_rap_vor_pac',     // Combinaison SEC/RID/RAP/VOR/PAC
-            'anomalie_portail_auto_moto',       // Portails auto/motorisés
-            'anomalie_cfe_ppv_auto_moto',       // CFE/PPV auto/motorisés
-            'anomalie_ble_moto_auto',           // Barrières motorisées/auto
-            'anomalie_hydraulique',             // Équipements hydrauliques
-            'autres_composants',                // Champ texte libre pour autres
-            'information_autre_composant',      // Informations complémentaires
-        ];
-
         $anomalies = [];
         
-        foreach ($anomalieFields as $field) {
-            $value = $this->getEquipDataValue($equipData, $field);
+        // -----------------------------------------------------------------
+        // Parcourir les champs d'anomalies select/multi-select
+        // -----------------------------------------------------------------
+        foreach (self::ANOMALIE_FIELDS_CONTRAT as $fieldName) {
+            if (!isset($equipData[$fieldName]) || !is_array($equipData[$fieldName])) {
+                continue;
+            }
             
-            if (!empty($value)) {
-                // Si c'est un array (select multiple), concaténer les valeurs
-                if (is_array($value)) {
-                    $valueStr = implode(', ', array_filter($value));
-                } else {
-                    $valueStr = (string)$value;
+            $fieldData = $equipData[$fieldName];
+            
+            // Priorité 1 : valuesAsArray (champs select multiples)
+            // Contient un tableau des valeurs sélectionnées par le technicien
+            if (isset($fieldData['valuesAsArray']) && is_array($fieldData['valuesAsArray'])) {
+                $values = array_filter(
+                    $fieldData['valuesAsArray'],
+                    fn($v) => is_string($v) && trim($v) !== ''
+                );
+                if (!empty($values)) {
+                    $anomalies[] = implode(', ', $values);
+                    continue;
                 }
-                
-                if (!empty(trim($valueStr))) {
-                    $anomalies[] = trim($valueStr);
+            }
+            
+            // Priorité 2 : value directe (fallback)
+            if (isset($fieldData['value']) && is_string($fieldData['value']) && trim($fieldData['value']) !== '') {
+                $anomalies[] = trim($fieldData['value']);
+            }
+        }
+        
+        // -----------------------------------------------------------------
+        // Champs texte libre (autres composants)
+        // -----------------------------------------------------------------
+        foreach (['autres_composants', 'information_autre_composant'] as $fieldName) {
+            $value = $this->getEquipDataValue($equipData, $fieldName);
+            if (is_string($value) && trim($value) !== '') {
+                $anomalies[] = trim($value);
+            }
+        }
+        
+        if (empty($anomalies)) {
+            return null;
+        }
+        
+        $result = implode(' | ', $anomalies);
+        
+        $this->kizeoLogger->debug('Anomalies extraites', [
+            'nb_champs' => count($anomalies),
+            'anomalies' => $result,
+        ]);
+        
+        return $result;
+    }
+
+    /**
+     * Extrait les anomalies d'un équipement HORS CONTRAT
+     * 
+     * Les équipements HC n'ont PAS les mêmes champs anomalies que les équipements
+     * au contrat. Ils ont uniquement photo_anomalie (photo, pas de texte).
+     * On scanne quand même les champs texte au cas où certains formulaires
+     * les incluent, et on ajoute les travaux/pièces remplacées comme info.
+     * 
+     * @param array<string, mixed> $equipData Données brutes de l'équipement HC
+     * @return string|null Anomalies ou null
+     */
+    private function extractAnomaliesHC(array $equipData): ?string
+    {
+        $anomalies = [];
+        
+        // Les HC peuvent avoir des champs anomalies dans certains formulaires
+        // On scanne les mêmes champs que le contrat au cas où
+        foreach (self::ANOMALIE_FIELDS_CONTRAT as $fieldName) {
+            if (!isset($equipData[$fieldName]) || !is_array($equipData[$fieldName])) {
+                continue;
+            }
+            
+            $fieldData = $equipData[$fieldName];
+            
+            if (isset($fieldData['valuesAsArray']) && is_array($fieldData['valuesAsArray'])) {
+                $values = array_filter(
+                    $fieldData['valuesAsArray'],
+                    fn($v) => is_string($v) && trim($v) !== ''
+                );
+                if (!empty($values)) {
+                    $anomalies[] = implode(', ', $values);
+                    continue;
                 }
+            }
+            
+            if (isset($fieldData['value']) && is_string($fieldData['value']) && trim($fieldData['value']) !== '') {
+                $anomalies[] = trim($fieldData['value']);
             }
         }
         
         return !empty($anomalies) ? implode(' | ', $anomalies) : null;
     }
+
+    // =========================================================================
+    // STATUTS ET DESCRIPTIONS
+    // =========================================================================
 
     /**
      * Retourne la description textuelle du statut équipement
@@ -381,17 +485,15 @@ class KizeoFormProcessor
     }
 
     /**
-     * Calcule le code statut basé sur les champs de calcul Kizeo
+     * Calcule le code statut pour un équipement AU CONTRAT
+     * basé sur les champs de calcul Kizeo (calcul_*, travaux_obligatoire, etc.)
+     * 
      * Utilisé en fallback si le champ 'etat' n'est pas rempli
      * 
-     * Les champs calcul_* sont des flags 0/1 calculés automatiquement par Kizeo
-     * en fonction des réponses du technicien
-     * 
      * @param array<string, mixed> $equipData Données de l'équipement
-     * @param bool $isHorsContrat True si équipement hors contrat
      * @return string|null Code statut (A, B, C, D, E, F, G)
      */
-    private function calculateStatusFromFields(array $equipData, bool $isHorsContrat = false): ?string
+    private function calculateStatusFromFieldsContrat(array $equipData): ?string
     {
         // Priorité des états (du plus critique au moins critique)
         
@@ -410,33 +512,66 @@ class KizeoFormProcessor
             return 'A';
         }
         
-        // États particuliers (NOIR)
-        if (!$isHorsContrat) {
-            // Codes spécifiques SOUS CONTRAT
-            if ($this->getEquipDataValue($equipData, 'equipement_inaccessible_le_jo') === '1') {
-                return 'D'; // Inaccessible
-            }
-            if ($this->getEquipDataValue($equipData, 'equipement_a_l_arret_le_jour_') === '1') {
-                return 'E'; // À l'arrêt
-            }
-            if ($this->getEquipDataValue($equipData, 'equipement_mis_a_l_arret_le_j') === '1') {
-                return 'F'; // Mis à l'arrêt
-            }
-            if ($this->getEquipDataValue($equipData, 'equipement_non_present_sur_si') === '1') {
-                return 'G'; // Non présent
-            }
-        } else {
-            // Codes spécifiques HORS CONTRAT (pas de F et G)
-            if ($this->getEquipDataValue($equipData, 'equipement_a_l_arret_le_jour_') === '1') {
-                return 'D'; // À l'arrêt (= E sous contrat)
-            }
-            if ($this->getEquipDataValue($equipData, 'equipement_mis_a_l_arret_le_j') === '1') {
-                return 'E'; // Mis à l'arrêt (= F sous contrat)
-            }
+        // États particuliers (NOIR) - spécifiques au contrat
+        if ($this->getEquipDataValue($equipData, 'equipement_inaccessible_le_jo') === '1') {
+            return 'D'; // Inaccessible
+        }
+        if ($this->getEquipDataValue($equipData, 'equipement_a_l_arret_le_jour_') === '1') {
+            return 'E'; // À l'arrêt
+        }
+        if ($this->getEquipDataValue($equipData, 'equipement_mis_a_l_arret_le_j') === '1') {
+            return 'F'; // Mis à l'arrêt
+        }
+        if ($this->getEquipDataValue($equipData, 'equipement_non_present_sur_si') === '1') {
+            return 'G'; // Non présent
         }
         
         // Fallback: utiliser le champ etat directement
         return $this->getEquipDataValue($equipData, 'etat');
+    }
+
+    /**
+     * Calcule le code statut pour un équipement HORS CONTRAT
+     * 
+     * FIX 06/02/2026: Les champs HC ont des noms DIFFÉRENTS du contrat :
+     * - rien_a_signaler_equipement_su  (au lieu de calcul_rien_a_signaler)
+     * - travaux_a_prevoir_equi_sup     (au lieu de calcul_travaux_a_prevoir)
+     * - travaux_obligatoire_equi_sup   (au lieu de travaux_obligatoire)
+     * - condamne_equi_sup              (n'existe pas en contrat)
+     * - equipement_mis_a_l_arret_eq    (au lieu de equipement_mis_a_l_arret_le_j)
+     * 
+     * @param array<string, mixed> $equipData Données de l'équipement HC
+     * @return string|null Code statut (A, B, C, D, E)
+     */
+    private function calculateStatusFromFieldsHC(array $equipData): ?string
+    {
+        // Travaux curatifs (ROUGE) = C
+        if ($this->getEquipDataValue($equipData, 'travaux_obligatoire_equi_sup') === '1') {
+            return 'C';
+        }
+        
+        // Travaux préventifs (ORANGE) = B
+        if ($this->getEquipDataValue($equipData, 'travaux_a_prevoir_equi_sup') === '1') {
+            return 'B';
+        }
+        
+        // Bon état (VERT) = A
+        if ($this->getEquipDataValue($equipData, 'rien_a_signaler_equipement_su') === '1') {
+            return 'A';
+        }
+        
+        // Condamné (NOIR) = D
+        if ($this->getEquipDataValue($equipData, 'condamne_equi_sup') === '1') {
+            return 'D';
+        }
+        
+        // Mis à l'arrêt (NOIR) = E
+        if ($this->getEquipDataValue($equipData, 'equipement_mis_a_l_arret_eq') === '1') {
+            return 'E';
+        }
+        
+        // Fallback: utiliser le champ etat1 (pas etat) pour les HC
+        return $this->getEquipDataValue($equipData, 'etat1');
     }
 
     /**
@@ -469,9 +604,122 @@ class KizeoFormProcessor
         return !empty($observations) ? implode(' - ', $observations) : null;
     }
 
+    /**
+     * Construit les observations pour un équipement HC
+     * Inclut les travaux/pièces remplacées
+     * 
+     * @param array<string, mixed> $equipData Données de l'équipement HC
+     * @return string|null Observations formatées ou null si vide
+     */
+    private function buildObservationsHC(array $equipData): ?string
+    {
+        $observations = [];
+        
+        // Travaux/pièces remplacées lors de la visite (champ HC = travaux_pieces_remplaces_lor)
+        $travauxPieces = $this->getEquipDataValue($equipData, 'travaux_pieces_remplaces_lor');
+        if (!empty($travauxPieces) && is_string($travauxPieces)) {
+            $observations[] = $travauxPieces;
+        }
+        
+        return !empty($observations) ? implode(' - ', $observations) : null;
+    }
+
+    // =========================================================================
+    // DÉDUCTION DU TRIGRAMME DEPUIS nature.value (HC)
+    // =========================================================================
+
+    /**
+     * Déduit le préfixe type (trigramme) depuis le champ nature.value des HC
+     * 
+     * FIX 06/02/2026: Les équipements HC n'ont pas de numéro prédéfini.
+     * Le type est dans nature.value (ex: "Rideau métallique") et non dans
+     * reference7 (qui n'existe pas en HC).
+     * 
+     * Le mapping est ordonné du plus spécifique au plus générique pour
+     * éviter les faux positifs (ex: "porte rapide" avant "rapide").
+     * 
+     * @param string|null $nature Valeur du champ nature.value
+     * @return string Trigramme (SEC, RAP, RID, PAU, etc.) ou 'EQU' par défaut
+     */
+    private function deduceTypePrefixFromNature(?string $nature): string
+    {
+        if ($nature === null || trim($nature) === '') {
+            return 'EQU';
+        }
+
+        $normalized = mb_strtolower(trim($nature));
+        
+        // Mapping nature → trigramme
+        // IMPORTANT: ordonné du plus spécifique au plus générique
+        $mapping = [
+            'porte sectionnelle'    => 'SEC',
+            'sectionnelle'          => 'SEC',
+            'porte rapide'          => 'RAP',
+            'porte automatique'     => 'RAP',
+            'rapide'                => 'RAP',
+            'automatique'           => 'RAP',
+            'rideau métallique'     => 'RID',
+            'rideau metallique'     => 'RID',
+            'rideau'                => 'RID',
+            'portail coulissant'    => 'PAU',
+            'portail battant'       => 'PMO',
+            'portail manuel'        => 'PMA',
+            'portail'               => 'PAU',
+            'barrière levante'      => 'BLE',
+            'barriere levante'      => 'BLE',
+            'barrière'              => 'BLE',
+            'barriere'              => 'BLE',
+            'niveleur de quai'      => 'NIV',
+            'niveleur'              => 'NIV',
+            'porte coupe-feu'       => 'CFE',
+            'porte coupe feu'       => 'CFE',
+            'coupe-feu'             => 'CFE',
+            'coupe feu'             => 'CFE',
+            'porte piétonne'        => 'PPV',
+            'porte pieton'          => 'PPV',
+            'porte piéton'          => 'PPV',
+            'tourniquet'            => 'TOU',
+            'sas'                   => 'SAS',
+            'bloc-roue'             => 'BRO',
+            'bloc roue'             => 'BRO',
+            'table elevatrice'      => 'TEL',
+            'butoir'                => 'BUT',
+            'buttoir'               => 'BUT',
+        ];
+
+        foreach ($mapping as $keyword => $prefix) {
+            if (str_contains($normalized, $keyword)) {
+                return $prefix;
+            }
+        }
+
+        $this->kizeoLogger->warning('Type HC non reconnu, trigramme EQU par défaut', [
+            'nature' => $nature,
+        ]);
+
+        return 'EQU';
+    }
+
+    // =========================================================================
+    // TRAITEMENT ÉQUIPEMENT AU CONTRAT
+    // =========================================================================
 
     /**
      * Traite un équipement AU CONTRAT avec mapping complet des champs
+     * 
+     * Champs Kizeo contrat:
+     * - equipement.value → numéro (ex: RID16)
+     * - equipement.path  → visite (ex: "MAIRIE DE MOIRANS\CE1" → CE1)
+     * - reference7.value → libellé (ex: "Rideau metallique")
+     * - reference5.value → marque
+     * - reference2.value → mise en service
+     * - reference6.value → n° de série
+     * - reference3.value → hauteur
+     * - reference1.value → largeur
+     * - mode_fonctionnement_2.value → mode fonctionnement
+     * - localisation_site_client.value → repère site client
+     * - etat.value → code lettre (A, B, C...)
+     * - anomalie_*.valuesAsArray → anomalies
      * 
      * @param string $agencyCode Code agence (S40, S60, etc.)
      * @param int $formId ID du formulaire Kizeo
@@ -553,47 +801,40 @@ class KizeoFormProcessor
         $entity->setDateEnregistrement(new \DateTime());
         
         // ==========================================================================
-        // 5. CHAMPS ENRICHIS (NOUVEAU MAPPING COMPLET)
+        // 5. CHAMPS ENRICHIS (MAPPING CONTRAT)
         // ==========================================================================
         
-        // Libellé équipement (type: Porte Rapide, Porte Sectionelle, Niveleur, etc.)
-        // Champ Kizeo: reference7
+        // Libellé équipement (type: Porte Rapide, Rideau metallique, Niveleur, etc.)
         $entity->setLibelleEquipement(
             $this->getEquipDataValue($equipData, 'reference7') ?? ''
         );
         
-        // Repère site client (localisation sur le site: Charcuterie, QUAI, Poissonnerie)
-        // Champ Kizeo: localisation_site_client
+        // Repère site client (localisation sur le site)
         $entity->setRepereSiteClient(
             $this->getEquipDataValue($equipData, 'localisation_site_client')
         );
         
         // Année de mise en service
-        // Champ Kizeo: reference2
         $entity->setMiseEnService(
             $this->getEquipDataValue($equipData, 'reference2')
         );
         
-        // Numéro de série de l'équipement
-        // Champ Kizeo: reference6
+        // Numéro de série
         $entity->setNumeroSerie(
             $this->getEquipDataValue($equipData, 'reference6')
         );
         
-        // Marque du fabricant (DITEC, ALPHA DEUREN, MISCHLER SOPRECA, etc.)
-        // Champ Kizeo: reference5
+        // Marque du fabricant
         $entity->setMarque(
             $this->getEquipDataValue($equipData, 'reference5')
         );
         
-        // Mode de fonctionnement (automatique, manuel)
-        // Champ Kizeo: mode_fonctionnement_2
+        // Mode de fonctionnement (automatique, manuel, motorisé)
         $entity->setModeFonctionnement(
             $this->getEquipDataValue($equipData, 'mode_fonctionnement_2')
         );
         
         // Dimensions
-        // Champ Kizeo: reference3 = hauteur, reference1 = largeur
         $entity->setHauteur(
             $this->getEquipDataValue($equipData, 'reference3')
         );
@@ -602,16 +843,13 @@ class KizeoFormProcessor
         );
         
         // ==========================================================================
-        // STATUT ÉQUIPEMENT (Codes officiels SOMAFI - Margaux V5)
+        // STATUT ÉQUIPEMENT AU CONTRAT (Codes officiels SOMAFI)
         // ==========================================================================
-        // A: Bon état (VERT) / B: Travaux préventifs (ORANGE) / C: Travaux curatifs (ROUGE)
-        // D: Inaccessible (NOIR) / E: À l'arrêt (NOIR) / F: Mis à l'arrêt (NOIR) / G: Non présent (NOIR)
         
         // Récupérer le code lettre depuis Kizeo ou le calculer depuis les champs
         $statusCode = $this->getEquipDataValue($equipData, 'etat');
         if (empty($statusCode)) {
-            // Fallback: calculer depuis les champs calcul_*
-            $statusCode = $this->calculateStatusFromFields($equipData, false);
+            $statusCode = $this->calculateStatusFromFieldsContrat($equipData);
         }
         
         // statut_equipement = Code lettre (A, B, C, D, E, F, G)
@@ -622,10 +860,21 @@ class KizeoFormProcessor
             $this->getStatusDescription($statusCode, false)
         );
         
-        // Anomalies (combinaison de tous les champs d'anomalies non vides)
-        $entity->setAnomalies(
-            $this->extractAnomalies($equipData)
-        );
+        // ==========================================================================
+        // ANOMALIES (FIX 06/02/2026 - extraction directe des valuesAsArray)
+        // ==========================================================================
+        $anomalies = $this->extractAnomalies($equipData);
+        $entity->setAnomalies($anomalies);
+        
+        // Log si statut C/B mais aucune anomalie trouvée (aide au debug)
+        if (in_array($statusCode, ['B', 'C'], true) && $anomalies === null) {
+            $this->kizeoLogger->warning('Équipement statut B/C sans anomalie détectée', [
+                'agency' => $agencyCode,
+                'numero' => $numero,
+                'statut' => $statusCode,
+                'data_id' => $dataId,
+            ]);
+        }
         
         // Observations (temps de travail estimé + besoins nacelle)
         $entity->setObservations(
@@ -644,6 +893,7 @@ class KizeoFormProcessor
                 'libelle' => $entity->getLibelleEquipement(),
                 'marque' => $entity->getMarque(),
                 'statut' => $entity->getStatutEquipement(),
+                'anomalies' => $anomalies,
             ]);
         }
 
@@ -651,13 +901,24 @@ class KizeoFormProcessor
         return $result;
     }
 
-    // =============================================================================
-    // MÉTHODE processOffContractEquipment() MODIFIÉE (ÉQUIPEMENTS HORS CONTRAT)
-    // =============================================================================
+    // =========================================================================
+    // TRAITEMENT ÉQUIPEMENT HORS CONTRAT (FIX COMPLET 06/02/2026)
+    // =========================================================================
 
     /**
-     * Traite un équipement HORS CONTRAT avec mapping complet
-     * Les équipements hors contrat viennent du tableau2 et utilisent une déduplication différente
+     * Traite un équipement HORS CONTRAT avec mapping SPÉCIFIQUE HC
+     * 
+     * FIX 06/02/2026: Les champs HC sont DIFFÉRENTS du contrat :
+     * - nature.value         → type/libellé (au lieu de reference7)
+     * - etat1.value          → code lettre (au lieu de etat)
+     * - localisation_site_client1 → repère (au lieu de localisation_site_client)
+     * - mode_fonctionnement_ → mode (au lieu de mode_fonctionnement_2)
+     * - marque.value         → marque (au lieu de reference5)
+     * - hauteur.value        → hauteur (au lieu de reference3)
+     * - largeur.value        → largeur (au lieu de reference1)
+     * - annee.value          → mise en service (au lieu de reference2)
+     * - n_de_serie.value     → n° série (au lieu de reference6)
+     * - rien_a_signaler_equipement_su, travaux_a_prevoir_equi_sup, etc.
      * 
      * @param string $agencyCode Code agence
      * @param int $formId ID du formulaire Kizeo
@@ -704,20 +965,27 @@ class KizeoFormProcessor
         }
 
         // ==========================================================================
-        // 2. EXTRACTION DES DONNÉES
+        // 2. EXTRACTION DU TYPE DEPUIS nature.value (FIX 06/02/2026)
         // ==========================================================================
         
-        // Pour les équipements hors contrat, les noms de champs peuvent être différents
-        // Utiliser les mêmes noms que contrat_de_maintenance si disponibles
-        $libelle = $this->getEquipDataValue($equipData, 'reference7') 
-            ?? $this->getEquipDataValue($equipData, 'libelle_produit_hc')
-            ?? $this->getEquipDataValue($equipData, 'type_equipement')
-            ?? 'Équipement HC';
+        // Le type/libellé HC vient de nature.value (ex: "Rideau métallique")
+        // et NON de reference7 (qui n'existe pas en HC)
+        $natureValue = $this->getEquipDataValue($equipData, 'nature');
+        $libelle = $natureValue ?? 'Équipement HC';
+        
+        // Déduire le trigramme depuis la nature pour la génération du numéro
+        $typePrefix = $this->deduceTypePrefixFromNature($natureValue);
             
         $annee = $dateVisite ? (new \DateTime($dateVisite))->format('Y') : date('Y');
         
-        // Générer un numéro d'équipement basé sur le type
-        $numero = $this->generateOffContractNumber($libelle, $index);
+        // Générer le numéro d'équipement basé sur le type déduit
+        // Utilise le OffContractNumberGenerator pour obtenir le prochain numéro
+        // disponible pour ce type chez ce client (ex: RID28 si RID27 existe déjà)
+        $numero = $this->numberGenerator->getNextNumber(
+            $agencyCode,
+            $idContact,
+            $typePrefix
+        );
 
         // ==========================================================================
         // 3. CRÉATION DE L'ENTITÉ
@@ -739,59 +1007,71 @@ class KizeoFormProcessor
         $entity->setKizeoIndex($index); // CRITIQUE pour déduplication
         $entity->setDateEnregistrement(new \DateTime());
         
-        // --- Champs enrichis (même mapping que contrat) ---
+        // ==========================================================================
+        // CHAMPS ENRICHIS - MAPPING SPÉCIFIQUE HC (FIX 06/02/2026)
+        // Les noms de champs HC sont DIFFÉRENTS de ceux du contrat !
+        // ==========================================================================
+        
+        // Repère site client (champ HC = localisation_site_client1, PAS localisation_site_client)
         $entity->setRepereSiteClient(
-            $this->getEquipDataValue($equipData, 'localisation_site_client')
+            $this->getEquipDataValue($equipData, 'localisation_site_client1')
         );
         
+        // Mise en service (champ HC = annee, PAS reference2)
         $entity->setMiseEnService(
-            $this->getEquipDataValue($equipData, 'reference2')
+            $this->getEquipDataValue($equipData, 'annee')
         );
         
+        // Numéro de série (champ HC = n_de_serie, PAS reference6)
         $entity->setNumeroSerie(
-            $this->getEquipDataValue($equipData, 'reference6')
+            $this->getEquipDataValue($equipData, 'n_de_serie')
         );
         
+        // Marque (champ HC = marque, PAS reference5)
         $entity->setMarque(
-            $this->getEquipDataValue($equipData, 'reference5')
+            $this->getEquipDataValue($equipData, 'marque')
         );
         
+        // Mode de fonctionnement (champ HC = mode_fonctionnement_, PAS mode_fonctionnement_2)
         $entity->setModeFonctionnement(
-            $this->getEquipDataValue($equipData, 'mode_fonctionnement_2')
+            $this->getEquipDataValue($equipData, 'mode_fonctionnement_')
         );
         
+        // Hauteur (champ HC = hauteur, PAS reference3)
         $entity->setHauteur(
-            $this->getEquipDataValue($equipData, 'reference3')
+            $this->getEquipDataValue($equipData, 'hauteur')
         );
         
+        // Largeur (champ HC = largeur, PAS reference1)
         $entity->setLargeur(
-            $this->getEquipDataValue($equipData, 'reference1')
+            $this->getEquipDataValue($equipData, 'largeur')
         );
         
         // ==========================================================================
-        // STATUT ÉQUIPEMENT HORS CONTRAT (Codes officiels SOMAFI - Margaux V5)
+        // STATUT ÉQUIPEMENT HC (FIX 06/02/2026 - champs spécifiques HC)
         // ==========================================================================
-        // A: Bon état (VERT) / B: Travaux préventifs (ORANGE) / C: Travaux curatifs (ROUGE)
-        // D: À l'arrêt (NOIR) / E: Mis à l'arrêt (NOIR)
-        // Note: Pas de codes F et G pour les équipements hors contrat
         
-        $statusCode = $this->getEquipDataValue($equipData, 'etat');
+        // Le code lettre HC vient de etat1 (PAS etat)
+        $statusCode = $this->getEquipDataValue($equipData, 'etat1');
         if (empty($statusCode)) {
-            $statusCode = $this->calculateStatusFromFields($equipData, true); // true = hors contrat
+            // Fallback: calculer depuis les champs calcul HC (noms différents du contrat)
+            $statusCode = $this->calculateStatusFromFieldsHC($equipData);
         }
         
         $entity->setStatutEquipement($statusCode);
         
         $entity->setEtatEquipement(
-            $this->getStatusDescription($statusCode, true) // true = hors contrat
+            $this->getStatusDescription($statusCode, true)
         );
         
+        // Anomalies HC (scan des champs au cas où + spécifiques HC)
         $entity->setAnomalies(
-            $this->extractAnomalies($equipData)
+            $this->extractAnomaliesHC($equipData)
         );
         
+        // Observations HC (travaux/pièces remplacées)
         $entity->setObservations(
-            $this->buildObservations($equipData)
+            $this->buildObservationsHC($equipData)
         );
 
         // ==========================================================================
@@ -804,6 +1084,9 @@ class KizeoFormProcessor
                 'agency' => $agencyCode,
                 'numero' => $numero,
                 'libelle' => $libelle,
+                'nature' => $natureValue,
+                'type_prefix' => $typePrefix,
+                'statut' => $statusCode,
                 'index' => $index,
             ]);
         }
@@ -812,8 +1095,12 @@ class KizeoFormProcessor
         return $result;
     }
 
+    // =========================================================================
+    // MÉTHODES UTILITAIRES
+    // =========================================================================
+
     /**
-     * Extrait une valeur d'un champ Kizeo
+     * Extrait une valeur d'un champ Kizeo de premier niveau (fields)
      * 
      * @param array<string, mixed> $fields
      */
@@ -825,6 +1112,7 @@ class KizeoFormProcessor
     /**
      * Extrait la visite depuis le path d'un équipement
      * Ex: "GROUPE MAURIN\\CE1" -> "CE1"
+     *     "MAIRIE DE MOIRANS\\CE1" -> "CE1"
      */
     private function extractVisiteFromPath(string $path): string
     {
@@ -841,46 +1129,5 @@ class KizeoFormProcessor
         }
 
         return 'CE1';
-    }
-
-    /**
-     * Génère un numéro d'équipement pour les équipements hors contrat
-     * Format: PREFIX + INDEX (ex: SEC01, RAP02, NIV01)
-     * 
-     * @param string $libelle Libellé de l'équipement
-     * @param int $index Index dans le tableau
-     * @return string Numéro généré
-     */
-    private function generateOffContractNumber(string $libelle, int $index): string
-    {
-        // Mapping libellé -> préfixe
-        $prefixMap = [
-            'porte rapide' => 'RAP',
-            'porte sectionelle' => 'SEC',
-            'porte sectionnelle' => 'SEC',
-            'rideau' => 'RID',
-            'volet' => 'VOL',
-            'portail' => 'PAU',
-            'barriere' => 'BLE',
-            'barrière' => 'BLE',
-            'niveleur' => 'NIV',
-            'plaque' => 'PLQ',
-            'sas' => 'SAS',
-            'tourniquet' => 'TOU',
-            'porte coupe feu' => 'CFE',
-            'porte pieton' => 'PPV',
-        ];
-        
-        $libelleNormalized = strtolower(trim($libelle));
-        $prefix = 'EQP'; // Défaut
-        
-        foreach ($prefixMap as $keyword => $pfx) {
-            if (str_contains($libelleNormalized, $keyword)) {
-                $prefix = $pfx;
-                break;
-            }
-        }
-        
-        return sprintf('%s%02d', $prefix, $index + 1);
     }
 }

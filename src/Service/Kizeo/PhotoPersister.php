@@ -20,9 +20,46 @@ use Psr\Log\LoggerInterface;
  * et sert de référence pour :
  * - DownloadMediaCommand (quelles photos télécharger)
  * - ClientReportGenerator (quel chemin local pour les images)
+ * 
+ * CORRECTIONS 06/02/2026:
+ * - FIX #1 CRITIQUE: $equipment->numero → $equipment->numeroEquipement
+ *   (propriété inexistante sur ExtractedEquipment → skip systématique AU CONTRAT)
+ * - FIX #2: Mapping aliases champs HC vers colonnes table photos
+ *   (photo_etiquette_somafi1 → photo_etiquette_somafi, photo3 → photo_compte_rendu, etc.)
+ * - FIX #3: Logging enrichi pour tracer les photos non mappées
  */
 class PhotoPersister
 {
+    /**
+     * Mapping des noms de champs Kizeo vers les colonnes réelles de la table `photos`.
+     * 
+     * Les champs du sous-formulaire "tableau2" (hors contrat) ont des noms 
+     * DIFFÉRENTS de ceux de "contrat_de_maintenance" (au contrat).
+     * Ce mapping normalise les deux vers les colonnes existantes.
+     * 
+     * Également utile pour les champs au contrat dont le nom Kizeo
+     * diffère légèrement du nom de colonne (ex: photo2 → photo_2).
+     */
+    private const FIELD_ALIASES = [
+        // =====================================================================
+        // Aliases HORS CONTRAT (tableau2) → colonnes table photos
+        // =====================================================================
+        'photo_etiquette_somafi1'    => 'photo_etiquette_somafi',   // HC: suffixe "1"
+        'photo_plaque_signaletique'  => 'photo_plaque',             // HC: nom différent
+        'photo3'                     => 'photo_compte_rendu',       // HC: photo CR = photo3
+        'photo_anomalie'             => 'photo_choc',               // HC: anomalie → choc (colonne la plus proche)
+
+        // =====================================================================
+        // Aliases AU CONTRAT (contrat_de_maintenance) → colonnes table photos
+        // =====================================================================
+        'photo2'                             => 'photo_2',                          // Contrat: photo CR = photo2
+        'photo_environnement_equipemen1'     => 'photo_environnement_equipement1',  // Contrat: troncature Kizeo
+        'photo_envirronement_eclairage'      => 'photo_envirronement_eclairage',    // Déjà correct (typo dans la BDD aussi)
+        'photo_environnement_eclairage'      => 'photo_envirronement_eclairage',    // Variante sans typo → colonne avec typo
+        'photo_lame_basse_int_ext'           => 'photo_lame_basse__int_ext',        // Contrat: double underscore en BDD
+        'photo_bache_'                       => 'photo_bache',                      // Contrat: underscore trailing
+    ];
+
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly PhotoRepository $photoRepository,
@@ -64,10 +101,19 @@ class PhotoPersister
         // Dériver updateTime depuis dateVisite (format string pour l'entité Photo)
         $updateTime = $extractedData->dateVisite?->format('Y-m-d H:i:s');
 
+        // =====================================================================
         // 1. Traiter les équipements AU CONTRAT
+        // FIX #1: $equipment->numero → $equipment->numeroEquipement
+        // (ExtractedEquipment n'a PAS de propriété "numero", c'est "numeroEquipement")
+        // =====================================================================
         foreach ($extractedData->contractEquipments as $equipment) {
-            $numero = $equipment->numero ?? null;
+            $numero = $equipment->numeroEquipement ?? null;
             if (!$numero) {
+                $this->kizeoLogger->warning('Équipement AU CONTRAT sans numéro, skip photo', [
+                    'form_id' => $formId,
+                    'data_id' => $dataId,
+                    'equipment_type' => $equipment->typeEquipement ?? 'inconnu',
+                ]);
                 continue;
             }
 
@@ -86,7 +132,8 @@ class PhotoPersister
                 visite: $equipVisite,
                 annee: $annee,
                 updateTime: $updateTime,
-                medias: $mediasByEquipment[$numero] ?? []
+                medias: $mediasByEquipment[$numero] ?? [],
+                isContract: true,
             );
 
             $result['created'] += $photoResult['created'];
@@ -94,11 +141,19 @@ class PhotoPersister
             $result['photos_mapped'] += $photoResult['photos_mapped'];
         }
 
+        // =====================================================================
         // 2. Traiter les équipements HORS CONTRAT
+        // FIX #1: $equipment->numero → $equipment->numeroEquipement
+        // =====================================================================
         foreach ($extractedData->offContractEquipments as $index => $equipment) {
-            // Le numéro a été généré par EquipmentPersister
-            $numero = $generatedNumbers[$index] ?? $equipment->numero ?? null;
+            // Le numéro a été généré par EquipmentPersister (priorité)
+            $numero = $generatedNumbers[$index] ?? $equipment->numeroEquipement ?? null;
             if (!$numero) {
+                $this->kizeoLogger->warning('Équipement HC sans numéro, skip photo', [
+                    'form_id' => $formId,
+                    'data_id' => $dataId,
+                    'index' => $index,
+                ]);
                 continue;
             }
 
@@ -113,7 +168,8 @@ class PhotoPersister
                 visite: $visite,
                 annee: $annee,
                 updateTime: $updateTime,
-                medias: $mediasByEquipment[$numero] ?? []
+                medias: $mediasByEquipment[$numero] ?? [],
+                isContract: false,
             );
 
             $result['created'] += $photoResult['created'];
@@ -137,6 +193,7 @@ class PhotoPersister
      * Crée ou skip un enregistrement Photo pour un équipement donné.
      * 
      * @param ExtractedMedia[] $medias
+     * @param bool $isContract Indique si l'équipement est au contrat (pour le logging)
      * @return array{created: int, skipped: int, photos_mapped: int}
      */
     private function persistPhotoForEquipment(
@@ -150,7 +207,8 @@ class PhotoPersister
         string $visite,
         string $annee,
         ?string $updateTime,
-        array $medias
+        array $medias,
+        bool $isContract = true,
     ): array {
         $result = ['created' => 0, 'skipped' => 0, 'photos_mapped' => 0];
 
@@ -186,16 +244,35 @@ class PhotoPersister
         $photo->setRaisonSocialeVisite($raisonSociale);
         $photo->setDateEnregistrement(new \DateTime());
 
-        // Mapper les médias aux colonnes photo_*
+        // =====================================================================
+        // FIX #2: Mapper les médias aux colonnes photo_* AVEC résolution d'aliases
+        // Les champs HC ont des noms différents des colonnes (ex: photo_etiquette_somafi1)
+        // =====================================================================
         foreach ($medias as $media) {
             $fieldName = $media->fieldName ?? null;
             $mediaName = $media->mediaName ?? null;
 
-            if ($fieldName && $mediaName) {
-                $mapped = $photo->setPhotoByFieldName($fieldName, $mediaName);
-                if ($mapped) {
-                    $result['photos_mapped']++;
-                }
+            if (!$fieldName || !$mediaName) {
+                continue;
+            }
+
+            // Résoudre l'alias : nom champ Kizeo → nom colonne table photos
+            $resolvedFieldName = $this->resolveFieldAlias($fieldName);
+
+            $mapped = $photo->setPhotoByFieldName($resolvedFieldName, $mediaName);
+            if ($mapped) {
+                $result['photos_mapped']++;
+            } else {
+                // FIX #3: Logger les photos non mappées pour diagnostic
+                $this->kizeoLogger->debug('Photo non mappée vers colonne', [
+                    'form_id' => $formId,
+                    'data_id' => $dataId,
+                    'numero' => $numero,
+                    'field_name_original' => $fieldName,
+                    'field_name_resolved' => $resolvedFieldName,
+                    'media_name' => $mediaName,
+                    'is_contract' => $isContract,
+                ]);
             }
         }
 
@@ -203,6 +280,21 @@ class PhotoPersister
         $result['created'] = 1;
 
         return $result;
+    }
+
+    /**
+     * Résout un alias de champ Kizeo vers le nom de colonne réel de la table `photos`.
+     * 
+     * Les sous-formulaires contrat_de_maintenance et tableau2 utilisent des noms
+     * de champs légèrement différents pour des données équivalentes.
+     * Ce mapping unifie les deux vers les colonnes existantes.
+     * 
+     * @param string $fieldName Nom du champ Kizeo brut
+     * @return string Nom de colonne résolu pour setPhotoByFieldName()
+     */
+    private function resolveFieldAlias(string $fieldName): string
+    {
+        return self::FIELD_ALIASES[$fieldName] ?? $fieldName;
     }
 
     /**
