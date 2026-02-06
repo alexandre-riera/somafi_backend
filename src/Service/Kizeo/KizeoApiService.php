@@ -544,8 +544,19 @@ class KizeoApiService
                 'form_id' => $formId,
                 'count' => count($dataIds),
             ]);
+
+            $this->kizeoLogger->debug('Raw data IDs sample', [
+                'first_3' => array_slice($dataIds, 0, 3),
+                'type_first' => gettype($dataIds[0] ?? null),
+            ]);
             
-            return $dataIds;
+            // L'API peut retourner des objets {"id": "xxx"} ou des scalaires
+            return array_map(function ($item) {
+                if (is_array($item)) {
+                    return (int) ($item['id'] ?? 0);
+                }
+                return (int) $item;
+            }, $dataIds);
             
         } catch (\Exception $e) {
             $this->kizeoLogger->error('Erreur récupération data IDs', [
