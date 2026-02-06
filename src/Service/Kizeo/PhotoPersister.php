@@ -58,6 +58,10 @@ class PhotoPersister
         'photo_environnement_eclairage'      => 'photo_envirronement_eclairage',    // Variante sans typo → colonne avec typo
         'photo_lame_basse_int_ext'           => 'photo_lame_basse__int_ext',        // Contrat: double underscore en BDD
         'photo_bache_'                       => 'photo_bache',                      // Contrat: underscore trailing
+
+        // Noms tronqués par Kizeo (limite 30 chars probable)
+        'photo_complementaire_equipeme'  => 'photo_complementaire_equipement',
+        'photo_feuille_prise_de_cote_'   => 'photo_feuille_prise_de_cote',
     ];
 
     public function __construct(
