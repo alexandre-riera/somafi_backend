@@ -21,34 +21,54 @@ use Psr\Log\LoggerInterface;
  * - 'source' → 'is_hors_contrat' (0 = contrat, 1 = hors contrat)
  * - 'created_at' → 'date_enregistrement'
  * - 'trigramme_technicien' → 'trigramme_tech'
+ * 
+ * CORRECTION 06/02/2026 v2 — ALIGNEMENT HC:
+ * - FIX #1: HC — mapping complet de TOUS les champs (repère, dimensions,
+ *   mode fonctionnement, mise en service, n° série, libellé, statut, observations)
+ * - FIX #2: HC — visite déduite depuis les équipements au contrat du même formulaire
+ * - FIX #3: Contrat — ajout statut_equipement et observations
+ * - FIX #4: TYPE_PREFIXES étendu (aligné avec ExtractedEquipment::getTypePrefix)
  */
 class EquipmentPersister
 {
     // Mapping des préfixes par type d'équipement
+    // CORRECTION 06/02/2026: Étendu avec tous les types du KizeoFormProcessor
     private const TYPE_PREFIXES = [
         'porte sectionnelle' => 'SEC',
         'sectionnelle' => 'SEC',
         'porte rapide' => 'RAP',
         'rapide' => 'RAP',
-        'rideau metallique' => 'RID',
         'rideau métallique' => 'RID',
+        'rideau metallique' => 'RID',
         'rideau' => 'RID',
+        'portail coulissant' => 'PAU',
+        'portail battant' => 'PMO',
+        'portail manuel' => 'PMA',
         'portail' => 'PAU',
-        'barriere' => 'BLE',
+        'barrière levante' => 'BLE',
+        'barriere levante' => 'BLE',
         'barrière' => 'BLE',
+        'barriere' => 'BLE',
         'niveleur de quai' => 'NIV',
         'niveleur' => 'NIV',
         'quai' => 'NIV',
+        'porte coupe-feu' => 'CFE',
         'porte coupe feu' => 'CFE',
-        'coupe feu' => 'CFE',
         'coupe-feu' => 'CFE',
+        'coupe feu' => 'CFE',
         'porte automatique' => 'PAU',
         'automatique' => 'PAU',
+        'porte piétonne' => 'PPV',
         'porte pieton' => 'PPV',
         'porte piéton' => 'PPV',
         'pieton' => 'PPV',
         'tourniquet' => 'TOU',
         'sas' => 'SAS',
+        'bloc-roue' => 'BRO',
+        'bloc roue' => 'BRO',
+        'table elevatrice' => 'TEL',
+        'butoir' => 'BUT',
+        'buttoir' => 'BUT',
     ];
 
     public function __construct(
@@ -110,6 +130,10 @@ class EquipmentPersister
         }
 
         // 2. Persister équipements hors contrat
+        // La visite HC = celle des équipements au contrat du même formulaire
+        // (le technicien repère les HC pendant sa visite CE1/CE2/etc.)
+        $visite = $this->resolveVisiteFromContractEquipments($formData);
+
         foreach ($formData->offContractEquipments as $equipment) {
             $result = $this->persistOffContractEquipment(
                 $equipment,
@@ -117,7 +141,8 @@ class EquipmentPersister
                 $tableName,
                 $agencyCode,
                 $formId,
-                $dataId
+                $dataId,
+                $visite
             );
 
             if ($result !== null) {
@@ -171,7 +196,7 @@ class EquipmentPersister
             return false;
         }
 
-        // Insérer
+        // Insérer — FIX #3: ajout statut_equipement et observations
         $this->insertEquipment($tableName, [
             'id_contact' => $formData->idContact,
             'numero_equipement' => $numero,
@@ -187,18 +212,21 @@ class EquipmentPersister
             'hauteur' => $equipment->hauteur,
             'largeur' => $equipment->largeur,
             'longueur' => $equipment->longueur,
+            'statut_equipement' => $equipment->statutEquipement,    // ← NOUVEAU
             'etat_equipement' => $equipment->etatEquipement,
             'anomalies' => $equipment->anomalies,
+            'observations' => $equipment->observations,              // ← NOUVEAU
             'trigramme_tech' => $formData->trigramme,
-            'is_hors_contrat' => 0,  // ← CORRIGÉ: équipement AU contrat
+            'is_hors_contrat' => 0,
             'kizeo_form_id' => $formId,
             'kizeo_data_id' => $dataId,
-            'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),  // ← CORRIGÉ
+            'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),
         ]);
 
         $this->kizeoLogger->debug('Équipement contrat inséré', [
             'numero' => $numero,
             'visite' => $visite,
+            'statut' => $equipment->statutEquipement,
         ]);
 
         return true;
@@ -226,6 +254,11 @@ class EquipmentPersister
      * 
      * Clé de déduplication : kizeo_form_id + kizeo_data_id + kizeo_index
      * 
+     * CORRECTION 06/02/2026 v2:
+     * - FIX #1: Mapping complet de TOUS les champs HC depuis le DTO enrichi
+     * - FIX #2: visite = celle du formulaire (CE1, CE2...) déduite depuis les
+     *   équipements au contrat (les HC sont repérés pendant la même visite)
+     * 
      * @return string|null Numéro généré si inséré, null si déjà existant
      */
     private function persistOffContractEquipment(
@@ -234,7 +267,8 @@ class EquipmentPersister
         string $tableName,
         string $agencyCode,
         int $formId,
-        int $dataId
+        int $dataId,
+        string $visite
     ): ?string {
         $kizeoIndex = $equipment->kizeoIndex ?? 0;
 
@@ -255,30 +289,71 @@ class EquipmentPersister
             $formData->idContact
         );
 
-        // Insérer
+        // Insérer — FIX #1: TOUS les champs HC mappés
         $this->insertEquipment($tableName, [
             'id_contact' => $formData->idContact,
             'numero_equipement' => $numero,
-            'visite' => 'CE1',  // Défaut pour hors contrat
+            'libelle_equipement' => $equipment->libelleEquipement,
+            'visite' => $visite,                                           // ← Visite du formulaire (CE1, CE2...)
             'annee' => $formData->annee,
             'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d'),
+            'repere_site_client' => $equipment->repereSiteClient,       // ← NOUVEAU
+            'mise_en_service' => $equipment->miseEnService,             // ← NOUVEAU
+            'numero_serie' => $equipment->numeroSerie,                  // ← NOUVEAU
             'marque' => $equipment->marque,
+            'mode_fonctionnement' => $equipment->modeFonctionnement,    // ← NOUVEAU
+            'hauteur' => $equipment->hauteur,                           // ← NOUVEAU
+            'largeur' => $equipment->largeur,                           // ← NOUVEAU
+            'statut_equipement' => $equipment->statutEquipement,        // ← NOUVEAU
             'etat_equipement' => $equipment->etatEquipement,
             'anomalies' => $equipment->anomalies,
-            'trigramme_tech' => $formData->trigramme,  // ← CORRIGÉ
-            'is_hors_contrat' => 1,  // ← CORRIGÉ: équipement HORS contrat
+            'observations' => $equipment->observations,                 // ← NOUVEAU
+            'trigramme_tech' => $formData->trigramme,
+            'is_hors_contrat' => 1,
+            'is_archive' => 0,                                          // ← NOUVEAU (cohérent avec KizeoFormProcessor)
             'kizeo_form_id' => $formId,
             'kizeo_data_id' => $dataId,
             'kizeo_index' => $kizeoIndex,
-            'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),  // ← CORRIGÉ
+            'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),
         ]);
 
         $this->kizeoLogger->debug('Équipement hors contrat inséré', [
             'numero' => $numero,
+            'libelle' => $equipment->libelleEquipement,
             'type' => $equipment->typeEquipement,
+            'type_prefix' => $equipment->getTypePrefix(),
+            'statut' => $equipment->statutEquipement,
+            'repere' => $equipment->repereSiteClient,
+            'kizeo_index' => $kizeoIndex,
         ]);
 
         return $numero;
+    }
+
+    /**
+     * Déduit la visite du formulaire depuis les équipements au contrat
+     * 
+     * Les équipements HC n'ont pas de visite propre : ils héritent de celle
+     * du formulaire (CE1, CE2, CE3, CE4, CEA). On prend la visite du premier
+     * équipement au contrat. Si aucun équipement au contrat, fallback sur CE1.
+     */
+    private function resolveVisiteFromContractEquipments(ExtractedFormData $formData): string
+    {
+        foreach ($formData->contractEquipments as $equipment) {
+            $visite = $equipment->getNormalizedVisite();
+            if ($visite !== null) {
+                return $visite;
+            }
+        }
+
+        // Fallback : pas d'équipement au contrat dans ce CR
+        // (rare mais possible si le technicien n'a saisi que des HC)
+        $this->kizeoLogger->notice('Aucun équipement au contrat pour déduire la visite HC, fallback CE1', [
+            'form_id' => $formData->formId,
+            'data_id' => $formData->dataId,
+        ]);
+
+        return 'CE1';
     }
 
     /**
@@ -363,7 +438,7 @@ class EquipmentPersister
      */
     public static function getTypePrefix(string $typeEquipement): string
     {
-        $type = strtolower(trim($typeEquipement));
+        $type = mb_strtolower(trim($typeEquipement));
 
         foreach (self::TYPE_PREFIXES as $keyword => $prefix) {
             if (str_contains($type, $keyword)) {
