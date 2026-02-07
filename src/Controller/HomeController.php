@@ -11,6 +11,8 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 
 /**
  * Controller principal de l'application
@@ -184,6 +186,9 @@ class HomeController extends AbstractController
         // Récupérer les équipements
         $equipments = $this->getEquipmentsByVisit($agencyCode, $idContact, $annee, $visite);
 
+        // Récupérer les CR techniciens (PDF Kizeo) pour cette visite
+        $technicianReports = $this->getTechnicianReports($agencyCode, $idContact, $annee, $visite);
+
         return $this->render('home/equipments.html.twig', [
             'agency' => $agency,
             'agencyCode' => $agencyCode,
@@ -194,7 +199,61 @@ class HomeController extends AbstractController
             'available_years' => $availableFilters['years'],
             'available_visits' => $availableFilters['visits'],
             'last_visit' => $lastVisit,
+            'technician_reports' => $technicianReports,
         ]);
+    }
+
+    /**
+     * Téléchargement sécurisé d'un CR technicien (PDF)
+     * 
+     * Les PDF sont dans storage/ (hors public/), on les sert via BinaryFileResponse.
+     * Mode inline = aperçu navigateur, mode download = téléchargement.
+     */
+    #[Route('/agency/{agencyCode}/cr/{jobId}', name: 'app_download_technician_cr', requirements: ['agencyCode' => 'S\d+', 'jobId' => '\d+'])]
+    public function downloadTechnicianPdf(string $agencyCode, int $jobId, Request $request): Response
+    {
+        /** @var User $user */
+        $user = $this->getUser();
+
+        // Vérifier l'accès à l'agence
+        if ($user && !$user->hasAccessToAgency($agencyCode)) {
+            throw $this->createAccessDeniedException('Accès non autorisé');
+        }
+
+        // Récupérer le job PDF
+        try {
+            $sql = "SELECT * FROM kizeo_jobs WHERE id = :id AND job_type = 'pdf' AND status = 'done' LIMIT 1";
+            $job = $this->connection->fetchAssociative($sql, ['id' => $jobId]);
+        } catch (\Exception $e) {
+            throw $this->createNotFoundException('CR technicien non trouvé');
+        }
+
+        if (!$job) {
+            throw $this->createNotFoundException('CR technicien non trouvé');
+        }
+
+        // Vérifier que le job appartient bien à cette agence
+        if (strtoupper($job['agency_code']) !== strtoupper($agencyCode)) {
+            throw $this->createAccessDeniedException('Accès non autorisé à ce document');
+        }
+
+        // Vérifier que le fichier existe sur le disque
+        $filePath = $job['local_path'];
+        if (!$filePath || !file_exists($filePath)) {
+            throw $this->createNotFoundException('Fichier PDF non trouvé sur le serveur');
+        }
+
+        $response = new BinaryFileResponse($filePath);
+        $response->headers->set('Content-Type', 'application/pdf');
+
+        $mode = $request->query->get('mode', 'inline');
+        $disposition = ($mode === 'download')
+            ? ResponseHeaderBag::DISPOSITION_ATTACHMENT
+            : ResponseHeaderBag::DISPOSITION_INLINE;
+
+        $response->setContentDisposition($disposition, basename($filePath));
+
+        return $response;
     }
 
     // =========================================================================
@@ -354,6 +413,37 @@ class HomeController extends AbstractController
             
             return $this->connection->fetchAllAssociative($sql, [
                 'idContact' => $idContact,
+                'annee' => $annee,
+                'visite' => $visite,
+            ]);
+
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Récupère les CR techniciens (PDF) disponibles pour un client/visite
+     * Source : table kizeo_jobs (jobs PDF terminés avec succès)
+     * 
+     * @return array Liste des CR avec id, data_id, client_name, local_path, file_size, completed_at
+     */
+    private function getTechnicianReports(string $agencyCode, int $idContact, string $annee, string $visite): array
+    {
+        try {
+            $sql = "SELECT id, data_id, form_id, client_name, local_path, file_size, completed_at, annee, visite
+                    FROM kizeo_jobs
+                    WHERE job_type = 'pdf'
+                    AND status = 'done'
+                    AND agency_code = :agency_code
+                    AND id_contact = :id_contact
+                    AND annee = :annee
+                    AND visite = :visite
+                    ORDER BY completed_at DESC";
+
+            return $this->connection->fetchAllAssociative($sql, [
+                'agency_code' => strtoupper($agencyCode),
+                'id_contact' => $idContact,
                 'annee' => $annee,
                 'visite' => $visite,
             ]);
