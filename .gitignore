@@ -21,3 +21,8 @@
 /public/assets/
 /assets/vendor/
 ###< symfony/asset-mapper ###
+
+###> somafi storage ###
+/storage/
+/public/uploads/
+###< somafi storage ###
