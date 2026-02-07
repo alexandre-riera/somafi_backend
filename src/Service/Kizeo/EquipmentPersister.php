@@ -28,6 +28,11 @@ use Psr\Log\LoggerInterface;
  * - FIX #2: HC — visite déduite depuis les équipements au contrat du même formulaire
  * - FIX #3: Contrat — ajout statut_equipement et observations
  * - FIX #4: TYPE_PREFIXES étendu (aligné avec ExtractedEquipment::getTypePrefix)
+ * 
+ * CORRECTION 07/02/2026 — FIX HC DÉDUPLIQUÉS:
+ * - FIX #5: Quand un HC est dédupliqué (skip), récupérer son numéro existant
+ *   en BDD et le placer dans generated_numbers pour que PhotoPersister
+ *   et JobCreator puissent résoudre HC_0 → numéro réel
  */
 class EquipmentPersister
 {
@@ -135,6 +140,8 @@ class EquipmentPersister
         $visite = $this->resolveVisiteFromContractEquipments($formData);
 
         foreach ($formData->offContractEquipments as $equipment) {
+            $kizeoIndex = $equipment->kizeoIndex ?? 0;
+
             $result = $this->persistOffContractEquipment(
                 $equipment,
                 $formData,
@@ -146,10 +153,26 @@ class EquipmentPersister
             );
 
             if ($result !== null) {
+                // Nouveau HC inséré → numéro généré
                 $stats['inserted_offcontract']++;
-                $stats['generated_numbers'][$equipment->kizeoIndex] = $result;
+                $stats['generated_numbers'][$kizeoIndex] = $result;
             } else {
+                // HC dédupliqué → récupérer le numéro existant en BDD
+                // FIX #5 (07/02/2026): Sans ça, PhotoPersister et JobCreator
+                // ne peuvent pas résoudre HC_0 → numéro réel → warning
                 $stats['skipped_offcontract']++;
+                $existingNumero = $this->getExistingOffContractNumero(
+                    $tableName, $formId, $dataId, $kizeoIndex
+                );
+                if ($existingNumero !== null) {
+                    $stats['generated_numbers'][$kizeoIndex] = $existingNumero;
+                    $this->kizeoLogger->debug('HC dédupliqué: numéro existant récupéré pour photos/jobs', [
+                        'form_id' => $formId,
+                        'data_id' => $dataId,
+                        'kizeo_index' => $kizeoIndex,
+                        'numero' => $existingNumero,
+                    ]);
+                }
             }
         }
 
@@ -212,10 +235,10 @@ class EquipmentPersister
             'hauteur' => $equipment->hauteur,
             'largeur' => $equipment->largeur,
             'longueur' => $equipment->longueur,
-            'statut_equipement' => $equipment->statutEquipement,    // ← NOUVEAU
+            'statut_equipement' => $equipment->statutEquipement,
             'etat_equipement' => $equipment->etatEquipement,
             'anomalies' => $equipment->anomalies,
-            'observations' => $equipment->observations,              // ← NOUVEAU
+            'observations' => $equipment->observations,
             'trigramme_tech' => $formData->trigramme,
             'is_hors_contrat' => 0,
             'kizeo_form_id' => $formId,
@@ -294,23 +317,23 @@ class EquipmentPersister
             'id_contact' => $formData->idContact,
             'numero_equipement' => $numero,
             'libelle_equipement' => $equipment->libelleEquipement,
-            'visite' => $visite,                                           // ← Visite du formulaire (CE1, CE2...)
+            'visite' => $visite,
             'annee' => $formData->annee,
             'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d'),
-            'repere_site_client' => $equipment->repereSiteClient,       // ← NOUVEAU
-            'mise_en_service' => $equipment->miseEnService,             // ← NOUVEAU
-            'numero_serie' => $equipment->numeroSerie,                  // ← NOUVEAU
+            'repere_site_client' => $equipment->repereSiteClient,
+            'mise_en_service' => $equipment->miseEnService,
+            'numero_serie' => $equipment->numeroSerie,
             'marque' => $equipment->marque,
-            'mode_fonctionnement' => $equipment->modeFonctionnement,    // ← NOUVEAU
-            'hauteur' => $equipment->hauteur,                           // ← NOUVEAU
-            'largeur' => $equipment->largeur,                           // ← NOUVEAU
-            'statut_equipement' => $equipment->statutEquipement,        // ← NOUVEAU
+            'mode_fonctionnement' => $equipment->modeFonctionnement,
+            'hauteur' => $equipment->hauteur,
+            'largeur' => $equipment->largeur,
+            'statut_equipement' => $equipment->statutEquipement,
             'etat_equipement' => $equipment->etatEquipement,
             'anomalies' => $equipment->anomalies,
-            'observations' => $equipment->observations,                 // ← NOUVEAU
+            'observations' => $equipment->observations,
             'trigramme_tech' => $formData->trigramme,
             'is_hors_contrat' => 1,
-            'is_archive' => 0,                                          // ← NOUVEAU (cohérent avec KizeoFormProcessor)
+            'is_archive' => 0,
             'kizeo_form_id' => $formId,
             'kizeo_data_id' => $dataId,
             'kizeo_index' => $kizeoIndex,
@@ -371,6 +394,31 @@ class EquipmentPersister
         );
 
         return (int) $this->connection->fetchOne($sql, [$formId, $dataId, $kizeoIndex]) > 0;
+    }
+
+    /**
+     * Récupère le numéro d'un équipement HC déjà existant en BDD
+     * 
+     * FIX #5 (07/02/2026): Quand un HC est dédupliqué, on a besoin de son
+     * numéro pour que PhotoPersister et JobCreator puissent résoudre
+     * les placeholders HC_0, HC_1... vers les vrais numéros (RID28, SEC05...).
+     * 
+     * @return string|null Le numéro existant ou null si introuvable
+     */
+    private function getExistingOffContractNumero(
+        string $tableName,
+        int $formId,
+        int $dataId,
+        int $kizeoIndex
+    ): ?string {
+        $sql = sprintf(
+            'SELECT numero_equipement FROM %s WHERE kizeo_form_id = ? AND kizeo_data_id = ? AND kizeo_index = ? LIMIT 1',
+            $tableName
+        );
+
+        $result = $this->connection->fetchOne($sql, [$formId, $dataId, $kizeoIndex]);
+
+        return $result !== false ? (string) $result : null;
     }
 
     /**

@@ -27,6 +27,12 @@ use Psr\Log\LoggerInterface;
  * - FIX #2: Mapping aliases champs HC vers colonnes table photos
  *   (photo_etiquette_somafi1 → photo_etiquette_somafi, photo3 → photo_compte_rendu, etc.)
  * - FIX #3: Logging enrichi pour tracer les photos non mappées
+ * 
+ * CORRECTIONS 07/02/2026:
+ * - FIX #4: indexMediasByEquipment — résolution HC_x via generatedNumbers
+ *   (les medias HC ont equipmentNumero = "HC_0", pas le numéro réel)
+ * - FIX #5: Guard défensif — skip silencieux si HC sans numéro résolu
+ *   au lieu d'un warning bloquant
  */
 class PhotoPersister
 {
@@ -148,15 +154,31 @@ class PhotoPersister
         // =====================================================================
         // 2. Traiter les équipements HORS CONTRAT
         // FIX #1: $equipment->numero → $equipment->numeroEquipement
+        // FIX #5 (07/02/2026): Guard défensif pour HC sans numéro résolu
         // =====================================================================
         foreach ($extractedData->offContractEquipments as $index => $equipment) {
             // Le numéro a été généré par EquipmentPersister (priorité)
+            // FIX #5: generatedNumbers contient maintenant aussi les numéros des HC dédupliqués
             $numero = $generatedNumbers[$index] ?? $equipment->numeroEquipement ?? null;
+
             if (!$numero) {
-                $this->kizeoLogger->warning('Équipement HC sans numéro, skip photo', [
+                // HC sans numéro résolu — skip silencieux (debug au lieu de warning)
+                $this->kizeoLogger->debug('Équipement HC sans numéro résolu, skip photo (attendu si HC non persisté)', [
                     'form_id' => $formId,
                     'data_id' => $dataId,
                     'index' => $index,
+                    'generated_numbers_keys' => array_keys($generatedNumbers),
+                ]);
+                continue;
+            }
+
+            // FIX #5: Vérifier que le numéro n'est pas un placeholder HC_x non résolu
+            if (str_starts_with($numero, 'HC_')) {
+                $this->kizeoLogger->debug('Équipement HC avec placeholder non résolu, skip photo', [
+                    'form_id' => $formId,
+                    'data_id' => $dataId,
+                    'index' => $index,
+                    'placeholder' => $numero,
                 ]);
                 continue;
             }
@@ -304,6 +326,12 @@ class PhotoPersister
     /**
      * Indexe les médias par numéro d'équipement pour accès O(1).
      * 
+     * FIX #4 (07/02/2026): Résolution complète des placeholders HC_x
+     * Les medias HC ont equipmentNumero = "HC_0", "HC_1"... qu'il faut
+     * résoudre via generatedNumbers AVANT l'indexation. Sans ça, les medias
+     * HC se retrouvent indexés sous "HC_0" au lieu du vrai numéro (RID28, etc.)
+     * et ne sont jamais rattachés à l'équipement lors du persist.
+     * 
      * @param ExtractedMedia[] $medias
      * @param array<int, string> $generatedNumbers
      * @return array<string, ExtractedMedia[]> [numero => [media, ...]]
@@ -315,7 +343,19 @@ class PhotoPersister
         foreach ($medias as $media) {
             $numero = $media->equipmentNumero ?? null;
 
-            // Si pas de numéro direct, essayer via generatedNumbers (hors contrat)
+            // FIX #4: Résoudre les placeholders HC_x → numéro réel
+            if ($numero !== null && str_starts_with($numero, 'HC_')) {
+                $hcIndex = (int) substr($numero, 3);
+
+                if (isset($generatedNumbers[$hcIndex])) {
+                    $numero = $generatedNumbers[$hcIndex];
+                } else {
+                    // Placeholder non résolu — essayer via equipmentIndex en fallback
+                    $numero = null;
+                }
+            }
+
+            // Fallback via equipmentIndex (si pas de numéro direct ou HC non résolu)
             if (!$numero && $media->equipmentIndex !== null && isset($generatedNumbers[$media->equipmentIndex])) {
                 $numero = $generatedNumbers[$media->equipmentIndex];
             }

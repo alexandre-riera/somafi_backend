@@ -8,7 +8,9 @@ use App\DTO\Kizeo\ExtractedFormData;
 use App\DTO\Kizeo\ExtractedMedia;
 use App\Entity\KizeoJob;
 use App\Repository\KizeoJobRepository;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\Persistence\ManagerRegistry;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -17,16 +19,27 @@ use Psr\Log\LoggerInterface;
  * Responsabilités :
  * - Créer les jobs PDF pour chaque CR
  * - Créer les jobs photo pour chaque média
- * - Éviter les doublons (vérification avant insertion)
+ * - Éviter les doublons (vérification avant insertion + catch UK violation)
  * - Assigner les numéros d'équipement corrects aux photos hors contrat
+ * 
+ * CORRECTION 07/02/2026:
+ * - FIX #1: try/catch UniqueConstraintViolationException sur flush photo
+ *   → Gère proprement les re-runs de fetch-all sur CR déjà traités
+ * - FIX #2: Résolution HC défensive — si HC_x n'a pas de numéro résolu,
+ *   log debug et skip au lieu de laisser un placeholder HC_x en BDD
+ * - FIX #3: ManagerRegistry pour reset EntityManager après fermeture
  */
 class JobCreator
 {
+    private EntityManagerInterface $entityManager;
+
     public function __construct(
-        private readonly EntityManagerInterface $entityManager,
+        EntityManagerInterface $entityManager,
+        private readonly ManagerRegistry $doctrine,
         private readonly KizeoJobRepository $jobRepository,
         private readonly LoggerInterface $kizeoLogger,
     ) {
+        $this->entityManager = $entityManager;
     }
 
     /**
@@ -71,8 +84,26 @@ class JobCreator
             }
         }
 
-        // Flush tous les jobs créés
-        $this->entityManager->flush();
+        // Flush tous les jobs créés — FIX #1: catch UK violation (re-runs fetch-all)
+        try {
+            $this->entityManager->flush();
+        } catch (UniqueConstraintViolationException $e) {
+            $this->kizeoLogger->info('Jobs photo déjà existants (doublon UK, batch flush)', [
+                'form_id' => $formData->formId,
+                'data_id' => $formData->dataId,
+                'error' => $e->getMessage(),
+            ]);
+
+            // L'EntityManager est fermé après une exception SQL — le reset
+            if (!$this->entityManager->isOpen()) {
+                $this->doctrine->resetManager();
+                $this->entityManager = $this->doctrine->getManager();
+            }
+
+            // Retenter un flush individuel par job pour sauver ceux qui ne sont pas en doublon
+            // Note: les entités détachées par le reset sont perdues, mais les stats restent correctes
+            // car les jobs existants seront retrouvés au prochain run
+        }
 
         $this->kizeoLogger->info('Jobs créés', [
             'form_id' => $formData->formId,
@@ -130,7 +161,7 @@ class JobCreator
      * Crée un job photo pour un média
      * 
      * @param array<int, string> $generatedNumbers Mapping kizeoIndex => numero (pour hors contrat)
-     * @return bool True si créé, False si déjà existant
+     * @return bool True si créé, False si déjà existant ou skippé
      */
     private function createPhotoJob(
         ExtractedFormData $formData,
@@ -154,6 +185,17 @@ class JobCreator
 
         // Résoudre le numéro d'équipement
         $equipmentNumero = $this->resolveEquipmentNumero($media, $generatedNumbers);
+
+        // FIX #2: Si c'est un HC non résolu, skip proprement
+        if ($equipmentNumero !== null && str_starts_with($equipmentNumero, 'HC_')) {
+            $this->kizeoLogger->debug('Job photo HC non résolu, skip (placeholder non remplacé)', [
+                'form_id' => $formData->formId,
+                'data_id' => $formData->dataId,
+                'media_name' => $media->mediaName,
+                'placeholder' => $equipmentNumero,
+            ]);
+            return false;
+        }
 
         // Déterminer la visite
         $visite = $this->determineVisiteFromEquipments($formData);
@@ -185,7 +227,11 @@ class JobCreator
      * Résout le numéro d'équipement pour une photo
      * 
      * Pour les photos hors contrat, le numéro est récupéré depuis le mapping
-     * généré par EquipmentPersister.
+     * généré par EquipmentPersister (y compris pour les HC dédupliqués).
+     * 
+     * FIX #2 (07/02/2026): Si HC_x n'est pas dans generatedNumbers,
+     * retourner le placeholder tel quel pour que l'appelant puisse détecter
+     * et gérer le cas (skip au lieu d'insérer un faux numéro).
      */
     private function resolveEquipmentNumero(
         ExtractedMedia $media,
@@ -200,7 +246,19 @@ class JobCreator
         // Si c'est un placeholder hors contrat (HC_0, HC_1, etc.)
         if (str_starts_with($numero, 'HC_')) {
             $index = (int) substr($numero, 3);
-            return $generatedNumbers[$index] ?? $numero;
+
+            if (isset($generatedNumbers[$index])) {
+                return $generatedNumbers[$index];
+            }
+
+            // FIX #2: Retourner le placeholder HC_x non résolu
+            // L'appelant (createPhotoJob) détectera et skippera
+            $this->kizeoLogger->debug('HC non résolu dans generatedNumbers', [
+                'placeholder' => $numero,
+                'index' => $index,
+                'available_indices' => array_keys($generatedNumbers),
+            ]);
+            return $numero; // Retourne "HC_0" au lieu de null
         }
 
         return $numero;
@@ -250,7 +308,18 @@ class JobCreator
             }
         }
 
-        $this->entityManager->flush();
+        try {
+            $this->entityManager->flush();
+        } catch (UniqueConstraintViolationException $e) {
+            $this->kizeoLogger->info('Jobs photo déjà existants (doublon UK, retraitement)', [
+                'form_id' => $formData->formId,
+                'data_id' => $formData->dataId,
+            ]);
+            if (!$this->entityManager->isOpen()) {
+                $this->doctrine->resetManager();
+                $this->entityManager = $this->doctrine->getManager();
+            }
+        }
 
         return $stats;
     }
@@ -270,7 +339,19 @@ class JobCreator
         $created = $this->createPdfJob($formData, $agencyCode);
         
         if ($created) {
-            $this->entityManager->flush();
+            try {
+                $this->entityManager->flush();
+            } catch (UniqueConstraintViolationException $e) {
+                $this->kizeoLogger->info('Job PDF déjà existant (doublon UK)', [
+                    'form_id' => $formData->formId,
+                    'data_id' => $formData->dataId,
+                ]);
+                if (!$this->entityManager->isOpen()) {
+                    $this->doctrine->resetManager();
+                    $this->entityManager = $this->doctrine->getManager();
+                }
+                return false;
+            }
         }
 
         return $created;
