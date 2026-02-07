@@ -11,8 +11,9 @@ parameters:
     kizeo.api_token: '%env(KIZEO_API_TOKEN)%'
     
     # Chemins de stockage
-    storage.path: '%env(STORAGE_PATH)%'
-    storage.pdf_technician_path: '%env(PDF_TECHNICIAN_PATH)%'
+    # APRÈS (kernel.project_dir — portable partout)
+    storage.path: '%kernel.project_dir%/storage'
+    storage.pdf_technician_path: '%kernel.project_dir%/storage/pdf'
     
     # Liste des agences
     app.agencies:

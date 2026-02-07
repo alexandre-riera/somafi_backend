@@ -6,6 +6,7 @@ use App\Entity\KizeoJob;
 use App\Repository\KizeoJobRepository;
 use App\Service\Kizeo\KizeoPdfDownloader;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\Persistence\ManagerRegistry;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -27,7 +28,6 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   - Traitement par chunks (défaut: 5)
  *   - flush + clear de Doctrine entre chaque chunk
  *   - Re-fetch des jobs à chaque chunk (fix détachement entités)
- *   - unset du contenu binaire PDF après sauvegarde
  *   - Seuil mémoire à 200 MB → GC forcé
  *   - Pause de 500ms entre chaque appel API
  * 
@@ -35,6 +35,12 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   détachait les entités non encore traitées. Maintenant on re-fetch à chaque
  *   chunk avec findPendingByType() — les jobs passés en 'done' ou 'failed'
  *   ne remontent plus.
+ * 
+ * FIX 07/02/2026 :
+ *   - #1 getDateVisite() retourne string|null, pas DateTime → supprimé ->format()
+ *   - #2 canRetry() vérifié AVANT markAsProcessing() (sinon -1 tentative)
+ *   - #3 ManagerRegistry pour recovery EntityManager après exception Doctrine
+ *   - #4 Guard PDF vide (0 bytes) → markAsFailed + unlink
  */
 #[AsCommand(
     name: 'app:kizeo:download-pdf',
@@ -50,7 +56,8 @@ class DownloadPdfCommand extends Command
     public function __construct(
         private readonly KizeoPdfDownloader $pdfDownloader,
         private readonly KizeoJobRepository $jobRepository,
-        private readonly EntityManagerInterface $em,
+        private EntityManagerInterface $em,              // FIX #3 : Plus readonly (réassigné après reset)
+        private readonly ManagerRegistry $doctrine,      // FIX #3 : Recovery EM
         private readonly LoggerInterface $kizeoLogger,
     ) {
         parent::__construct();
@@ -113,10 +120,9 @@ class DownloadPdfCommand extends Command
 
         // =============================================
         // 2. Traitement chunk par chunk
-        //    FIX : On re-fetch à chaque itération au lieu de tout charger d'un coup.
+        //    FIX 06/02 : On re-fetch à chaque itération au lieu de tout charger d'un coup.
         //    Après flush + clear, les entités sont détachées.
-        //    findPendingByType() ne retourne QUE les 'pending', donc les jobs
-        //    déjà traités (done/failed) ne reviennent plus.
+        //    Les jobs déjà traités (done/failed) ne remontent plus.
         // =============================================
         $stats = [
             'total' => 0,
@@ -149,14 +155,48 @@ class DownloadPdfCommand extends Command
             $chunkIndex++;
             $io->section(sprintf('📦 Chunk #%d (%d jobs)', $chunkIndex, count($jobs)));
 
-            // Marquer le chunk comme "processing"
+            // =============================================
+            // FIX #2 : Filtrer les jobs qui ont épuisé leurs tentatives AVANT markAsProcessing()
+            //   Sinon markAsProcessing() incrémente attempts, et canRetry() retourne false
+            //   immédiatement → on perd 1 tentative sur MAX_ATTEMPTS.
+            // =============================================
+            $validJobs = [];
             foreach ($jobs as $job) {
+                if (!$job->canRetry()) {
+                    // Skip direct sans incrémenter attempts
+                    $job->markAsFailed('Max attempts reached');
+                    $stats['total']++;
+                    $stats['skipped']++;
+                    $totalProcessed++;
+
+                    if ($isVerbose) {
+                        $io->text(sprintf('      ⏭️ Job #%d — max attempts atteint (%d/%d)',
+                            $job->getId(), $job->getAttempts(), KizeoJob::MAX_ATTEMPTS));
+                    }
+
+                    $this->kizeoLogger->warning('Job PDF skippé (max attempts)', [
+                        'job_id' => $job->getId(),
+                        'attempts' => $job->getAttempts(),
+                    ]);
+
+                    continue;
+                }
+                $validJobs[] = $job;
+            }
+
+            // Marquer les jobs valides comme "processing" (incrémente attempts)
+            foreach ($validJobs as $job) {
                 $job->markAsProcessing();
             }
-            $this->em->flush();
 
-            // Traiter chaque job du chunk
-            foreach ($jobs as $job) {
+            // FIX #3 : Flush protégé avec recovery EM
+            if (!$this->safeFlush($io)) {
+                $io->error('❌ Impossible de flush le marquage processing — arrêt');
+                break;
+            }
+
+            // Traiter chaque job valide du chunk
+            foreach ($validJobs as $job) {
                 $result = $this->processJob($job, $dryRun, $isVerbose, $io);
 
                 $stats['total']++;
@@ -180,7 +220,7 @@ class DownloadPdfCommand extends Command
 
             // Flush + clear Doctrine après chaque chunk
             if (!$dryRun) {
-                $this->em->flush();
+                $this->safeFlush($io);
                 $this->em->clear();
                 // Les entités sont détachées, mais au prochain tour de boucle
                 // on re-fetch des entités fraîches via fetchPendingJobs()
@@ -278,7 +318,10 @@ class DownloadPdfCommand extends Command
     /**
      * Traite UN job PDF
      * 
-     * @return string 'success' | 'failed' | 'skipped'
+     * Note : canRetry() est vérifié EN AMONT dans execute(), avant markAsProcessing().
+     * Ici le job est déjà marqué processing avec attempts incrémenté.
+     * 
+     * @return string 'success' | 'failed'
      */
     private function processJob(
         KizeoJob $job,
@@ -295,23 +338,6 @@ class DownloadPdfCommand extends Command
             $job->getClientName() ?? 'N/A'
         );
 
-        // Vérifier les tentatives max
-        if (!$job->canRetry()) {
-            if ($isVerbose) {
-                $io->text(sprintf('      ⏭️ %s — max attempts atteint (%d/%d)',
-                    $jobInfo, $job->getAttempts(), KizeoJob::MAX_ATTEMPTS));
-            }
-
-            $job->markAsFailed('Max attempts reached');
-
-            $this->kizeoLogger->warning('Job PDF skippé (max attempts)', [
-                'job_id' => $job->getId(),
-                'attempts' => $job->getAttempts(),
-            ]);
-
-            return 'skipped';
-        }
-
         // Mode dry-run
         if ($dryRun) {
             $io->text(sprintf('      🔍 [DRY-RUN] %s', $jobInfo));
@@ -319,10 +345,13 @@ class DownloadPdfCommand extends Command
         }
 
         try {
-            // Date de visite : utiliser le champ dédié, sinon fallback sur created_at
+            // =============================================
+            // FIX #1 : getDateVisite() retourne string|null, pas DateTime
+            //   Avant : $job->getDateVisite()->format('Y-m-d') → Fatal Error
+            //   Après : utilisation directe du string, fallback sur createdAt
+            // =============================================
             $dateVisite = $job->getDateVisite()
-                ? $job->getDateVisite()->format('Y-m-d')
-                : $job->getCreatedAt()->format('Y-m-d');
+                ?? $job->getCreatedAt()->format('Y-m-d');
 
             // Télécharger le PDF via le service
             $localPath = $this->pdfDownloader->download(
@@ -338,6 +367,26 @@ class DownloadPdfCommand extends Command
 
             if ($localPath !== null) {
                 $fileSize = file_exists($localPath) ? filesize($localPath) : 0;
+
+                // =============================================
+                // FIX #4 : Guard PDF vide (0 bytes)
+                //   L'API peut retourner 200 avec un corps vide.
+                //   On supprime le fichier fantôme et on marque en failed.
+                // =============================================
+                if ($fileSize === 0) {
+                    @unlink($localPath);
+                    $job->markAsFailed('PDF vide (0 bytes)');
+
+                    $this->kizeoLogger->error('PDF téléchargé vide', [
+                        'job_id' => $job->getId(),
+                        'form_id' => $job->getFormId(),
+                        'data_id' => $job->getDataId(),
+                        'path' => $localPath,
+                    ]);
+
+                    return 'failed';
+                }
+
                 $job->markAsDone($localPath, $fileSize);
 
                 if ($isVerbose) {
@@ -367,7 +416,18 @@ class DownloadPdfCommand extends Command
 
         } catch (\Throwable $e) {
             $errorMsg = sprintf('%s: %s', get_class($e), $e->getMessage());
-            $job->markAsFailed($errorMsg);
+
+            // FIX #3 : Tenter de marquer le job en failed même si l'EM est fermé
+            try {
+                $job->markAsFailed($errorMsg);
+            } catch (\Throwable) {
+                // L'EM est fermé, on tente un reset pour persister l'erreur
+                if ($this->resetEntityManagerIfNeeded($io)) {
+                    $this->kizeoLogger->warning('EM reset après exception dans processJob', [
+                        'job_id' => $job->getId(),
+                    ]);
+                }
+            }
 
             if ($isVerbose) {
                 $io->text(sprintf('      ❌ %s — %s', $jobInfo, $e->getMessage()));
@@ -380,6 +440,60 @@ class DownloadPdfCommand extends Command
             ]);
 
             return 'failed';
+        }
+    }
+
+    /**
+     * FIX #3 : Flush protégé avec recovery EntityManager
+     * 
+     * Si le flush échoue et ferme l'EM (ex: connexion MySQL perdue),
+     * on reset l'EM via ManagerRegistry pour que les chunks suivants
+     * puissent continuer.
+     * 
+     * @return bool true si le flush a réussi (ou si l'EM a été reset avec succès)
+     */
+    private function safeFlush(SymfonyStyle $io): bool
+    {
+        try {
+            $this->em->flush();
+            return true;
+        } catch (\Throwable $e) {
+            $this->kizeoLogger->error('Erreur flush Doctrine', [
+                'error' => $e->getMessage(),
+            ]);
+
+            $io->text(sprintf('   ⚠️ Erreur flush : %s', $e->getMessage()));
+
+            return $this->resetEntityManagerIfNeeded($io);
+        }
+    }
+
+    /**
+     * FIX #3 : Reset l'EntityManager s'il est fermé
+     * 
+     * Après une exception Doctrine (deadlock, connexion perdue, etc.),
+     * l'EM se ferme et refuse toute opération. Le reset via ManagerRegistry
+     * crée un nouvel EM fonctionnel.
+     * 
+     * @return bool true si l'EM a été reset avec succès
+     */
+    private function resetEntityManagerIfNeeded(SymfonyStyle $io): bool
+    {
+        if ($this->em->isOpen()) {
+            return true;
+        }
+
+        try {
+            $this->em = $this->doctrine->resetManager();
+            $this->kizeoLogger->warning('EntityManager reset après fermeture');
+            $io->text('   ♻️ EntityManager reset — reprise du traitement');
+            return true;
+        } catch (\Throwable $e) {
+            $this->kizeoLogger->critical('Impossible de reset EntityManager', [
+                'error' => $e->getMessage(),
+            ]);
+            $io->error('❌ Impossible de reset EntityManager : ' . $e->getMessage());
+            return false;
         }
     }
 
