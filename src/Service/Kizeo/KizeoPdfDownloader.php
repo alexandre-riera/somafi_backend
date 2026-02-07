@@ -8,7 +8,7 @@ use Psr\Log\LoggerInterface;
  * Service de téléchargement des PDF techniciens depuis Kizeo
  * 
  * Structure de stockage:
- * /{agence}/{id_contact}/{annee}/{visite}/{client}-{date}-{visite}.pdf
+ * /{agence}/{id_contact}/{annee}/{visite}/{client}-{date}-{visite}-{dataId}.pdf
  */
 class KizeoPdfDownloader
 {
@@ -44,7 +44,7 @@ class KizeoPdfDownloader
         }
 
         // Construire le chemin de stockage
-        $path = $this->buildPath($agencyCode, $idContact, $clientName, $annee, $visite, $dateVisite);
+        $path = $this->buildPath($agencyCode, $idContact, $clientName, $annee, $visite, $dateVisite, $dataId);
         $dir = dirname($path);
 
         if (!is_dir($dir)) {
@@ -76,13 +76,15 @@ class KizeoPdfDownloader
         string $clientName,
         string $annee,
         string $visite,
-        string $dateVisite
+        string $dateVisite,
+        int $dataId = 0
     ): string {
         $filename = sprintf(
-            '%s-%s-%s.pdf',
+            '%s-%s-%s-%d.pdf',
             $this->sanitizeFilename($clientName),
             $dateVisite,
-            $visite
+            $visite,
+            $dataId
         );
 
         return sprintf(
@@ -105,13 +107,15 @@ class KizeoPdfDownloader
         string $clientName,
         string $annee,
         string $visite,
-        string $dateVisite
+        string $dateVisite,
+        int $dataId = 0
     ): string {
         $filename = sprintf(
-            '%s-%s-%s.pdf',
+            '%s-%s-%s-%d.pdf',
             $this->sanitizeFilename($clientName),
             $dateVisite,
-            $visite
+            $visite,
+            $dataId
         );
 
         return sprintf(
@@ -133,9 +137,10 @@ class KizeoPdfDownloader
         string $clientName,
         string $annee,
         string $visite,
-        string $dateVisite
+        string $dateVisite,
+        int $dataId = 0
     ): bool {
-        $path = $this->buildPath($agencyCode, $idContact, $clientName, $annee, $visite, $dateVisite);
+        $path = $this->buildPath($agencyCode, $idContact, $clientName, $annee, $visite, $dateVisite, $dataId);
         return file_exists($path);
     }
 
