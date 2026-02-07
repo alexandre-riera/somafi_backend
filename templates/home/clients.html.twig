@@ -22,7 +22,7 @@
             <p class="text-muted mb-0">
                 <span class="badge bg-secondary">{{ agency.code }}</span>
                 &nbsp;•&nbsp;
-                {{ total_clients }} client{{ total_clients > 1 ? 's' : '' }}
+                <span id="clientCount">{{ total_clients }}</span> client{{ total_clients > 1 ? 's' : '' }}
             </p>
         </div>
         <a href="{{ path('app_home') }}" class="btn btn-outline-secondary">
@@ -30,37 +30,31 @@
         </a>
     </div>
 
-    {# Barre de recherche #}
+    {# Barre de recherche dynamique (JS) #}
     <div class="card shadow-sm mb-4">
         <div class="card-body">
-            <form method="get" action="{{ path('app_clients_list', {agencyCode: agencyCode}) }}" class="row g-3">
+            <div class="row g-3">
                 <div class="col-md-10">
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input type="text" 
-                               name="search" 
+                               id="searchInput"
                                class="form-control form-control-lg" 
-                               placeholder="Rechercher par nom, ville ou code postal..."
-                               value="{{ search }}"
+                               placeholder="Rechercher par nom, ville, code postal ou ID contact..."
                                autocomplete="off">
                     </div>
                 </div>
                 <div class="col-md-2">
-                    <button type="submit" class="btn btn-primary btn-lg w-100">
-                        Rechercher
+                    <button type="button" id="btnClearSearch" class="btn btn-outline-secondary btn-lg w-100" style="display:none;">
+                        <i class="bi bi-x-circle me-1"></i> Effacer
                     </button>
                 </div>
-            </form>
-            {% if search %}
-                <div class="mt-2">
-                    <a href="{{ path('app_clients_list', {agencyCode: agencyCode}) }}" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-x-circle me-1"></i> Effacer la recherche
-                    </a>
-                    <span class="text-muted ms-2">
-                        {{ clients|length }} résultat{{ clients|length > 1 ? 's' : '' }} pour "{{ search }}"
-                    </span>
-                </div>
-            {% endif %}
+            </div>
+            <div id="searchInfo" class="mt-2" style="display:none;">
+                <span class="text-muted">
+                    <span id="filteredCount">0</span> résultat(s) pour "<span id="searchTerm"></span>"
+                </span>
+            </div>
         </div>
     </div>
 
@@ -68,13 +62,15 @@
     {% if clients is empty %}
         <div class="alert alert-info">
             <i class="bi bi-info-circle me-2"></i>
-            {% if search %}
-                Aucun client trouvé pour "{{ search }}".
-            {% else %}
-                Aucun client trouvé pour cette agence.
-            {% endif %}
+            Aucun client trouvé pour cette agence.
         </div>
     {% else %}
+        {# Message quand la recherche ne donne rien #}
+        <div class="alert alert-info" id="noResultsAlert" style="display:none;">
+            <i class="bi bi-info-circle me-2"></i>
+            Aucun client trouvé pour cette recherche.
+        </div>
+
         <div class="card shadow-sm">
             <div class="table-responsive">
                 <table class="table table-hover table-striped mb-0" id="clientsTable">
@@ -90,7 +86,7 @@
                                 <i class="bi bi-gear me-1"></i> Équipements
                             </th>
                             <th scope="col" style="width: 15%;" class="text-center">
-                                <i class="bi bi-diagram-3 me-1"></i> ID Société
+                                <i class="bi bi-person-badge me-1"></i> ID Contact
                             </th>
                             <th scope="col" style="width: 10%;" class="text-center">
                                 Actions
@@ -101,6 +97,7 @@
                         {% for client in clients %}
                             <tr class="client-row" 
                                 data-href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: client.id_contact}) }}"
+                                data-search="{{ client.raison_sociale|lower }} {{ client.ville|lower }} {{ client.code_postal }} {{ client.id_contact }}"
                                 style="cursor: pointer;">
                                 <td>
                                     <div class="fw-semibold text-primary">
@@ -126,13 +123,9 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-center">
-                                    {% if client.id_societe %}
-                                        <span class="badge bg-info">
-                                            #{{ client.id_societe }}
-                                        </span>
-                                    {% else %}
-                                        <span class="text-muted">—</span>
-                                    {% endif %}
+                                    <span class="badge bg-primary">
+                                        #{{ client.id_contact }}
+                                    </span>
                                 </td>
                                 <td class="text-center">
                                     <a href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: client.id_contact}) }}" 
@@ -162,12 +155,61 @@
 {% block javascripts %}
 {{ parent() }}
 <script>
-    // Rendre les lignes cliquables
-    document.querySelectorAll('.client-row').forEach(row => {
-        row.addEventListener('click', function(e) {
-            // Éviter la navigation si on clique sur un lien ou un bouton
-            if (e.target.closest('a, button')) return;
-            window.location.href = this.dataset.href;
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('searchInput');
+        const btnClear = document.getElementById('btnClearSearch');
+        const searchInfo = document.getElementById('searchInfo');
+        const filteredCount = document.getElementById('filteredCount');
+        const searchTerm = document.getElementById('searchTerm');
+        const noResultsAlert = document.getElementById('noResultsAlert');
+        const rows = document.querySelectorAll('.client-row');
+        const clientCount = document.getElementById('clientCount');
+        const totalClients = rows.length;
+
+        // Recherche dynamique
+        searchInput.addEventListener('input', function() {
+            const query = this.value.trim().toLowerCase();
+            let visible = 0;
+
+            rows.forEach(row => {
+                const data = row.dataset.search || '';
+                const match = !query || data.includes(query);
+                row.style.display = match ? '' : 'none';
+                if (match) visible++;
+            });
+
+            // Mise à jour de l'UI
+            if (query) {
+                btnClear.style.display = '';
+                searchInfo.style.display = '';
+                filteredCount.textContent = visible;
+                searchTerm.textContent = this.value.trim();
+                clientCount.textContent = visible;
+            } else {
+                btnClear.style.display = 'none';
+                searchInfo.style.display = 'none';
+                clientCount.textContent = totalClients;
+            }
+
+            // Message "aucun résultat"
+            if (noResultsAlert) {
+                noResultsAlert.style.display = (query && visible === 0) ? '' : 'none';
+            }
+        });
+
+        // Bouton effacer
+        btnClear.addEventListener('click', function() {
+            searchInput.value = '';
+            searchInput.dispatchEvent(new Event('input'));
+            searchInput.focus();
+        });
+
+        // Rendre les lignes cliquables
+        rows.forEach(row => {
+            row.addEventListener('click', function(e) {
+                if (e.target.closest('a, button')) return;
+                window.location.href = this.dataset.href;
+            });
         });
     });
 </script>

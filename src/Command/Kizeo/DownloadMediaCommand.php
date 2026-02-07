@@ -14,6 +14,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
  * Commande de téléchargement des photos d'équipements depuis l'API Kizeo
@@ -60,6 +61,7 @@ class DownloadMediaCommand extends Command
         private readonly EntityManagerInterface $em,
         private readonly Connection $connection,
         private readonly LoggerInterface $kizeoLogger,
+        #[Autowire('%kernel.project_dir%')]
         private readonly string $projectDir,
     ) {
         parent::__construct();

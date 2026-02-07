@@ -20,14 +20,20 @@ use Symfony\Component\HttpFoundation\ResponseHeaderBag;
  * Gère :
  * - Page d'accueil / sélection agence
  * - Liste des clients par agence (via Kizeo)
- * - Page équipements client
+ * - Page équipements client (avec pagination)
  * 
  * @author Alex - SOMAFI GROUP
- * @version 2.0 - Session 22/01/2026
+ * @version 2.1 - Session 07/02/2026
  */
 #[IsGranted('ROLE_USER')]
 class HomeController extends AbstractController
 {
+    /** Nombre d'équipements par page par défaut */
+    private const EQUIPMENTS_PER_PAGE = 20;
+
+    /** Valeurs autorisées pour le nombre par page */
+    private const ALLOWED_PER_PAGE = [20, 50, 100];
+
     public function __construct(
         private readonly AgencyRepository $agencyRepository,
         private readonly KizeoClientService $kizeoClientService,
@@ -74,7 +80,8 @@ class HomeController extends AbstractController
      * Liste des clients d'une agence
      * 
      * Récupère les clients depuis Kizeo Forms en temps réel
-     * et enrichit avec les coordonnées GESTAN si disponibles
+     * et enrichit avec les coordonnées GESTAN si disponibles.
+     * La recherche est désormais côté JS (filtrage dynamique).
      */
     #[Route('/agency/{agencyCode}', name: 'app_clients_list', requirements: ['agencyCode' => 'S\d+'])]
     public function clientsList(string $agencyCode, Request $request): Response
@@ -95,15 +102,8 @@ class HomeController extends AbstractController
             return $this->redirectToRoute('app_home');
         }
 
-        // Paramètre de recherche
-        $search = $request->query->get('search', '');
-
-        // Récupérer les clients depuis Kizeo
-        if (!empty($search)) {
-            $clients = $this->kizeoClientService->searchClients($agencyCode, $search);
-        } else {
-            $clients = $this->kizeoClientService->getClientsByAgency($agencyCode);
-        }
+        // Récupérer tous les clients depuis Kizeo (le filtrage est côté JS)
+        $clients = $this->kizeoClientService->getClientsByAgency($agencyCode);
 
         // Récupérer les coordonnées GESTAN pour enrichissement
         $contactsGestan = $this->getContactsGestan($agencyCode);
@@ -124,7 +124,6 @@ class HomeController extends AbstractController
             'agency' => $agency,
             'agencyCode' => $agencyCode,
             'clients' => $clients,
-            'search' => $search,
             'total_clients' => count($clients),
         ]);
     }
@@ -132,8 +131,8 @@ class HomeController extends AbstractController
     /**
      * Page équipements d'un client
      * 
-     * Affiche les équipements avec filtres année/visite
-     * Par défaut : dernière visite enregistrée
+     * Affiche les équipements avec filtres année/visite et pagination.
+     * Par défaut : dernière visite enregistrée, page 1, 20 items/page.
      */
     #[Route('/agency/{agencyCode}/client/{idContact}', name: 'app_client_equipments', requirements: ['agencyCode' => 'S\d+', 'idContact' => '\d+'])]
     public function clientEquipments(string $agencyCode, int $idContact, Request $request): Response
@@ -180,11 +179,29 @@ class HomeController extends AbstractController
         $annee = $request->query->get('annee', $lastVisit['annee'] ?? date('Y'));
         $visite = $request->query->get('visite', $lastVisit['visite'] ?? 'CE1');
 
+        // Paramètres de pagination
+        $page = max(1, $request->query->getInt('page', 1));
+        $limit = $request->query->getInt('limit', self::EQUIPMENTS_PER_PAGE);
+        
+        // Sécuriser le limit aux valeurs autorisées
+        if (!in_array($limit, self::ALLOWED_PER_PAGE, true)) {
+            $limit = self::EQUIPMENTS_PER_PAGE;
+        }
+
         // Récupérer les années et visites disponibles
         $availableFilters = $this->getAvailableFilters($agencyCode, $idContact);
 
-        // Récupérer les équipements
-        $equipments = $this->getEquipmentsByVisit($agencyCode, $idContact, $annee, $visite);
+        // Récupérer les stats globales pour les compteurs (toujours sur le total)
+        $equipmentStats = $this->getEquipmentStats($agencyCode, $idContact, $annee, $visite);
+
+        // Calculer la pagination
+        $totalEquipments = $equipmentStats['total'];
+        $totalPages = max(1, (int) ceil($totalEquipments / $limit));
+        $page = min($page, $totalPages); // Sécuriser si page > max
+        $offset = ($page - 1) * $limit;
+
+        // Récupérer les équipements paginés
+        $equipments = $this->getEquipmentsByVisit($agencyCode, $idContact, $annee, $visite, $limit, $offset);
 
         // Récupérer les CR techniciens (PDF Kizeo) pour cette visite
         $technicianReports = $this->getTechnicianReports($agencyCode, $idContact, $annee, $visite);
@@ -200,6 +217,13 @@ class HomeController extends AbstractController
             'available_visits' => $availableFilters['visits'],
             'last_visit' => $lastVisit,
             'technician_reports' => $technicianReports,
+            // Pagination
+            'current_page' => $page,
+            'total_pages' => $totalPages,
+            'per_page' => $limit,
+            'pagination_offset' => $offset,
+            // Stats globales (pour les cards compteurs)
+            'equipment_stats' => $equipmentStats,
         ]);
     }
 
@@ -394,11 +418,53 @@ class HomeController extends AbstractController
     }
 
     /**
-     * Récupère les équipements d'un client pour une visite/année donnée
+     * Récupère les statistiques des équipements pour une visite (total, au contrat, hors contrat)
+     * Requête COUNT séparée pour ne pas dépendre de la pagination.
+     * 
+     * @return array{total: int, au_contrat: int, hors_contrat: int}
+     */
+    private function getEquipmentStats(string $agencyCode, int $idContact, string $annee, string $visite): array
+    {
+        $tableNumber = $this->extractTableNumber($agencyCode);
+        $tableName = 'equipement_s' . $tableNumber;
+
+        try {
+            $sql = "SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN is_hors_contrat = 0 THEN 1 ELSE 0 END) as au_contrat,
+                        SUM(CASE WHEN is_hors_contrat = 1 THEN 1 ELSE 0 END) as hors_contrat
+                    FROM {$tableName}
+                    WHERE id_contact = :idContact 
+                      AND annee = :annee 
+                      AND visite = :visite
+                      AND is_archive = 0";
+
+            $result = $this->connection->fetchAssociative($sql, [
+                'idContact' => $idContact,
+                'annee' => $annee,
+                'visite' => $visite,
+            ]);
+
+            if ($result) {
+                return [
+                    'total' => (int) $result['total'],
+                    'au_contrat' => (int) $result['au_contrat'],
+                    'hors_contrat' => (int) $result['hors_contrat'],
+                ];
+            }
+
+        } catch (\Exception $e) {
+        }
+
+        return ['total' => 0, 'au_contrat' => 0, 'hors_contrat' => 0];
+    }
+
+    /**
+     * Récupère les équipements d'un client pour une visite/année donnée (avec pagination)
      * 
      * @return array<int, array>
      */
-    private function getEquipmentsByVisit(string $agencyCode, int $idContact, string $annee, string $visite): array
+    private function getEquipmentsByVisit(string $agencyCode, int $idContact, string $annee, string $visite, int $limit = self::EQUIPMENTS_PER_PAGE, int $offset = 0): array
     {
         $tableNumber = $this->extractTableNumber($agencyCode);
         $tableName = 'equipement_s' . $tableNumber;
@@ -409,12 +475,21 @@ class HomeController extends AbstractController
                       AND annee = :annee 
                       AND visite = :visite
                       AND is_archive = 0
-                    ORDER BY is_hors_contrat ASC, numero_equipement ASC";
+                    ORDER BY is_hors_contrat ASC, numero_equipement ASC
+                    LIMIT :limit OFFSET :offset";
             
             return $this->connection->fetchAllAssociative($sql, [
                 'idContact' => $idContact,
                 'annee' => $annee,
                 'visite' => $visite,
+                'limit' => $limit,
+                'offset' => $offset,
+            ], [
+                'idContact' => \Doctrine\DBAL\ParameterType::INTEGER,
+                'annee' => \Doctrine\DBAL\ParameterType::STRING,
+                'visite' => \Doctrine\DBAL\ParameterType::STRING,
+                'limit' => \Doctrine\DBAL\ParameterType::INTEGER,
+                'offset' => \Doctrine\DBAL\ParameterType::INTEGER,
             ]);
 
         } catch (\Exception $e) {
