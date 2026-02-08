@@ -50,7 +50,6 @@ class EquipementController extends AbstractController
         'numero_equipement_client',
         'libelle_equipement',
         'marque',
-        'modele',
         'numero_serie',
         'mise_en_service',
         'mode_fonctionnement',
