@@ -30,6 +30,12 @@ trait EquipementTrait
     private ?string $numeroEquipement = null;
 
     /**
+     * Numéro de l'équipement chez le client si différent (ex: RAP01 -> RAP01-ATELIER-3, SEC001 -> SEC1001)
+     */
+    #[ORM\Column(type: 'string', length: 100, nullable: true)]
+    private ?string $numeroEquipementClient = null;
+
+    /**
      * Libellé/Type d'équipement (ex: "Porte rapide", "Porte sectionnelle")
      */
     #[ORM\Column(length: 255)]
@@ -198,6 +204,17 @@ trait EquipementTrait
     public function setNumeroEquipement(string $numeroEquipement): static
     {
         $this->numeroEquipement = strtoupper($numeroEquipement);
+        return $this;
+    }
+    
+    public function getNumeroEquipementClient(): ?string
+    {
+        return $this->numeroEquipementClient;
+    }
+
+    public function setNumeroEquipementClient(string $numeroEquipementClient): static
+    {
+        $this->numeroEquipementClient = strtoupper($numeroEquipementClient);
         return $this;
     }
 

@@ -1,0 +1,223 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Nouvel équipement - {{ agencyCode }}{% endblock %}
+
+{% block body %}
+<div class="container py-4">
+    {# Breadcrumb #}
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_home') }}">Accueil</a></li>
+            <li class="breadcrumb-item"><a href="{{ path('app_clients_list', {agencyCode: agencyCode}) }}">{{ agency.nom }}</a></li>
+            <li class="breadcrumb-item">
+                <a href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: idContact, annee: default_annee, visite: default_visite}) }}">
+                    Équipements
+                </a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Nouvel équipement</li>
+        </ol>
+    </nav>
+
+    {# En-tête #}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">
+            <i class="bi bi-plus-circle me-2 text-success"></i>
+            Nouvel équipement
+        </h1>
+        <a href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: idContact, annee: default_annee, visite: default_visite}) }}" 
+           class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Retour
+        </a>
+    </div>
+
+    {# Badge contexte #}
+    <div class="mb-4">
+        <span class="badge bg-secondary">{{ agencyCode }}</span>
+        <span class="badge bg-primary">Contact #{{ idContact }}</span>
+        {% if clientName %}
+            <span class="badge bg-dark">{{ clientName }}</span>
+        {% endif %}
+    </div>
+
+    {# Formulaire de création #}
+    <form method="post" action="{{ path('app_equipment_new', {agencyCode: agencyCode, idContact: idContact}) }}">
+        
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-success text-white">
+                <i class="bi bi-info-circle me-2"></i> Identification
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {# Numéro équipement (obligatoire en création) #}
+                    <div class="col-md-3">
+                        <label for="numero_equipement" class="form-label fw-semibold">
+                            Numéro équipement <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="numero_equipement"
+                               name="numero_equipement"
+                               value="{{ form_data.numero_equipement|default('') }}"
+                               required
+                               placeholder="Ex: SEC01, NIV03, RAP02">
+                    </div>
+
+                    {# Numéro équipement client #}
+                    <div class="col-md-3">
+                        <label for="numero_equipement_client" class="form-label fw-semibold">
+                            N° équipement client
+                        </label>
+                        <input type="text" class="form-control" id="numero_equipement_client" 
+                               name="numero_equipement_client"
+                               value="{{ form_data.numero_equipement_client|default('') }}"
+                               maxlength="100"
+                               placeholder="Si différent du N° SOMAFI">
+                    </div>
+
+                    {# Libellé #}
+                    <div class="col-md-3">
+                        <label for="libelle_equipement" class="form-label fw-semibold">
+                            Libellé <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="libelle_equipement"
+                               name="libelle_equipement"
+                               value="{{ form_data.libelle_equipement|default('') }}"
+                               required
+                               placeholder="Ex: Porte sectionnelle">
+                    </div>
+
+                    {# Année / Visite #}
+                    <div class="col-md-1">
+                        <label for="annee" class="form-label fw-semibold">Année <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="annee" name="annee"
+                               value="{{ form_data.annee|default(default_annee) }}"
+                               required maxlength="4">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="visite" class="form-label fw-semibold">Visite <span class="text-danger">*</span></label>
+                        <select class="form-select" id="visite" name="visite">
+                            {% set currentVisite = form_data.visite|default(default_visite) %}
+                            {% for v in ['CE1', 'CE2', 'CEA'] %}
+                                <option value="{{ v }}" {{ currentVisite == v ? 'selected' : '' }}>{{ v }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <i class="bi bi-tools me-2"></i> Caractéristiques techniques
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="marque" class="form-label fw-semibold">Marque</label>
+                        <input type="text" class="form-control" id="marque" name="marque"
+                               value="{{ form_data.marque|default('') }}"
+                               placeholder="Ex: Hormann, Maviflex">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="modele" class="form-label fw-semibold">Modèle</label>
+                        <input type="text" class="form-control" id="modele" name="modele"
+                               value="{{ form_data.modele|default('') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="numero_serie" class="form-label fw-semibold">N° de série</label>
+                        <input type="text" class="form-control" id="numero_serie" name="numero_serie"
+                               value="{{ form_data.numero_serie|default('') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="mise_en_service" class="form-label fw-semibold">Mise en service</label>
+                        <input type="text" class="form-control" id="mise_en_service" name="mise_en_service"
+                               value="{{ form_data.mise_en_service|default('') }}"
+                               placeholder="Ex: 2016">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="mode_fonctionnement" class="form-label fw-semibold">Mode de fonctionnement</label>
+                        <select class="form-select" id="mode_fonctionnement" name="mode_fonctionnement">
+                            {% for value, label in modes_fonctionnement %}
+                                <option value="{{ value }}" {{ (form_data.mode_fonctionnement|default('')) == value ? 'selected' : '' }}>
+                                    {{ label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="longueur" class="form-label fw-semibold">Longueur (mm)</label>
+                        <input type="text" class="form-control" id="longueur" name="longueur"
+                               value="{{ form_data.longueur|default('') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="largeur" class="form-label fw-semibold">Largeur (mm)</label>
+                        <input type="text" class="form-control" id="largeur" name="largeur"
+                               value="{{ form_data.largeur|default('') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="hauteur" class="form-label fw-semibold">Hauteur (mm)</label>
+                        <input type="text" class="form-control" id="hauteur" name="hauteur"
+                               value="{{ form_data.hauteur|default('') }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="repere_site_client" class="form-label fw-semibold">Repère site client</label>
+                        <input type="text" class="form-control" id="repere_site_client" name="repere_site_client"
+                               value="{{ form_data.repere_site_client|default('') }}"
+                               placeholder="Emplacement chez le client">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <i class="bi bi-clipboard-check me-2"></i> État et observations
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="statut_equipement" class="form-label fw-semibold">Statut</label>
+                        <select class="form-select" id="statut_equipement" name="statut_equipement">
+                            <option value="">— Non renseigné —</option>
+                            {% for code, label in statut_labels %}
+                                <option value="{{ code }}" {{ (form_data.statut_equipement|default('')) == code ? 'selected' : '' }}>
+                                    {{ code }} — {{ label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check form-switch mt-4">
+                            <input class="form-check-input" type="checkbox" id="is_hors_contrat" 
+                                   name="is_hors_contrat" value="1"
+                                   {{ form_data.is_hors_contrat|default(0) ? 'checked' : '' }}>
+                            <label class="form-check-label fw-semibold" for="is_hors_contrat">
+                                Équipement hors contrat
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="anomalies" class="form-label fw-semibold">Anomalies</label>
+                        <textarea class="form-control" id="anomalies" name="anomalies" rows="4"
+                                  placeholder="Anomalies constatées">{{ form_data.anomalies|default('') }}</textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="observations" class="form-label fw-semibold">Observations</label>
+                        <textarea class="form-control" id="observations" name="observations" rows="4"
+                                  placeholder="Observations diverses">{{ form_data.observations|default('') }}</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# Boutons d'action #}
+        <div class="d-flex justify-content-between">
+            <a href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: idContact, annee: default_annee, visite: default_visite}) }}" 
+               class="btn btn-outline-secondary btn-lg">
+                <i class="bi bi-x-lg me-1"></i> Annuler
+            </a>
+            <button type="submit" class="btn btn-success btn-lg">
+                <i class="bi bi-plus-lg me-1"></i> Créer l'équipement
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

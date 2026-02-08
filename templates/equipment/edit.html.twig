@@ -1,0 +1,246 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Modifier {{ equipment.numero_equipement }} - {{ agencyCode }}{% endblock %}
+
+{% block body %}
+<div class="container py-4">
+    {# Breadcrumb #}
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_home') }}">Accueil</a></li>
+            <li class="breadcrumb-item"><a href="{{ path('app_clients_list', {agencyCode: agencyCode}) }}">{{ agency.nom }}</a></li>
+            <li class="breadcrumb-item">
+                <a href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: idContact, annee: equipment.annee, visite: equipment.visite}) }}">
+                    Équipements
+                </a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Modifier {{ equipment.numero_equipement }}</li>
+        </ol>
+    </nav>
+
+    {# En-tête #}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">
+            <i class="bi bi-pencil-square me-2 text-primary"></i>
+            Modifier l'équipement <strong>{{ equipment.numero_equipement }}</strong>
+        </h1>
+        <a href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: idContact, annee: equipment.annee, visite: equipment.visite}) }}" 
+           class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Retour
+        </a>
+    </div>
+
+    {# Badge contexte #}
+    <div class="mb-4">
+        <span class="badge bg-secondary">{{ agencyCode }}</span>
+        <span class="badge bg-primary">Contact #{{ idContact }}</span>
+        <span class="badge bg-info">{{ equipment.visite }} {{ equipment.annee }}</span>
+        {% if equipment.is_hors_contrat %}
+            <span class="badge bg-warning text-dark">Hors contrat</span>
+        {% else %}
+            <span class="badge bg-success">Au contrat</span>
+        {% endif %}
+    </div>
+
+    {# Formulaire d'édition #}
+    <form method="post" action="{{ path('app_equipment_edit', {agencyCode: agencyCode, idContact: idContact, equipId: equipment.id}) }}">
+        
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <i class="bi bi-info-circle me-2"></i> Identification
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {# Numéro équipement (readonly) #}
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold">Numéro équipement SOMAFI</label>
+                        <input type="text" class="form-control" value="{{ equipment.numero_equipement }}" readonly disabled>
+                        <small class="text-muted">Identifiant interne — non modifiable</small>
+                    </div>
+
+                    {# Numéro équipement client (NOUVEAU) #}
+                    <div class="col-md-4">
+                        <label for="numero_equipement_client" class="form-label fw-semibold">
+                            Numéro équipement client
+                        </label>
+                        <input type="text" class="form-control" id="numero_equipement_client" 
+                               name="numero_equipement_client"
+                               value="{{ equipment.numero_equipement_client }}"
+                               maxlength="100"
+                               placeholder="Numéro chez le client (si différent)">
+                    </div>
+
+                    {# Libellé #}
+                    <div class="col-md-4">
+                        <label for="libelle_equipement" class="form-label fw-semibold">
+                            Libellé <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="libelle_equipement"
+                               name="libelle_equipement"
+                               value="{{ equipment.libelle_equipement }}"
+                               required>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <i class="bi bi-tools me-2"></i> Caractéristiques techniques
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {# Marque #}
+                    <div class="col-md-3">
+                        <label for="marque" class="form-label fw-semibold">Marque</label>
+                        <input type="text" class="form-control" id="marque" name="marque"
+                               value="{{ equipment.marque }}"
+                               placeholder="Ex: Hormann, Maviflex">
+                    </div>
+
+                    {# Modèle #}
+                    <div class="col-md-3">
+                        <label for="modele" class="form-label fw-semibold">Modèle</label>
+                        <input type="text" class="form-control" id="modele" name="modele"
+                               value="{{ equipment.modele }}">
+                    </div>
+
+                    {# Numéro de série #}
+                    <div class="col-md-3">
+                        <label for="numero_serie" class="form-label fw-semibold">N° de série</label>
+                        <input type="text" class="form-control" id="numero_serie" name="numero_serie"
+                               value="{{ equipment.numero_serie }}">
+                    </div>
+
+                    {# Mise en service #}
+                    <div class="col-md-3">
+                        <label for="mise_en_service" class="form-label fw-semibold">Mise en service</label>
+                        <input type="text" class="form-control" id="mise_en_service" name="mise_en_service"
+                               value="{{ equipment.mise_en_service }}"
+                               placeholder="Ex: 2016">
+                    </div>
+
+                    {# Mode de fonctionnement #}
+                    <div class="col-md-3">
+                        <label for="mode_fonctionnement" class="form-label fw-semibold">Mode de fonctionnement</label>
+                        <select class="form-select" id="mode_fonctionnement" name="mode_fonctionnement">
+                            {% for value, label in modes_fonctionnement %}
+                                <option value="{{ value }}" {{ equipment.mode_fonctionnement == value ? 'selected' : '' }}>
+                                    {{ label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# Dimensions #}
+                    <div class="col-md-3">
+                        <label for="longueur" class="form-label fw-semibold">Longueur (mm)</label>
+                        <input type="text" class="form-control" id="longueur" name="longueur"
+                               value="{{ equipment.longueur }}"
+                               placeholder="En mm">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="largeur" class="form-label fw-semibold">Largeur (mm)</label>
+                        <input type="text" class="form-control" id="largeur" name="largeur"
+                               value="{{ equipment.largeur }}"
+                               placeholder="En mm">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="hauteur" class="form-label fw-semibold">Hauteur (mm)</label>
+                        <input type="text" class="form-control" id="hauteur" name="hauteur"
+                               value="{{ equipment.hauteur }}"
+                               placeholder="En mm">
+                    </div>
+
+                    {# Repère site client #}
+                    <div class="col-md-6">
+                        <label for="repere_site_client" class="form-label fw-semibold">Repère site client</label>
+                        <input type="text" class="form-control" id="repere_site_client" name="repere_site_client"
+                               value="{{ equipment.repere_site_client }}"
+                               placeholder="Emplacement chez le client">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <i class="bi bi-clipboard-check me-2"></i> État et observations
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {# Statut équipement #}
+                    <div class="col-md-6">
+                        <label for="statut_equipement" class="form-label fw-semibold">Statut</label>
+                        <select class="form-select" id="statut_equipement" name="statut_equipement">
+                            <option value="">— Non renseigné —</option>
+                            {% for code, label in statut_labels %}
+                                <option value="{{ code }}" {{ equipment.statut_equipement == code ? 'selected' : '' }}>
+                                    {{ code }} — {{ label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# État équipement (auto-calculé, readonly) #}
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">État (auto-calculé)</label>
+                        <input type="text" class="form-control" value="{{ equipment.etat_equipement }}" readonly disabled
+                               id="etat_equipement_display">
+                        <small class="text-muted">Calculé automatiquement depuis le statut</small>
+                    </div>
+
+                    {# Hors contrat #}
+                    <div class="col-md-12">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="is_hors_contrat" 
+                                   name="is_hors_contrat" value="1"
+                                   {{ equipment.is_hors_contrat ? 'checked' : '' }}>
+                            <label class="form-check-label fw-semibold" for="is_hors_contrat">
+                                Équipement hors contrat
+                            </label>
+                        </div>
+                    </div>
+
+                    {# Anomalies #}
+                    <div class="col-md-6">
+                        <label for="anomalies" class="form-label fw-semibold">Anomalies</label>
+                        <textarea class="form-control" id="anomalies" name="anomalies" rows="4"
+                                  placeholder="Anomalies constatées">{{ equipment.anomalies }}</textarea>
+                    </div>
+
+                    {# Observations #}
+                    <div class="col-md-6">
+                        <label for="observations" class="form-label fw-semibold">Observations</label>
+                        <textarea class="form-control" id="observations" name="observations" rows="4"
+                                  placeholder="Observations diverses">{{ equipment.observations }}</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# Boutons d'action #}
+        <div class="d-flex justify-content-between">
+            <a href="{{ path('app_client_equipments', {agencyCode: agencyCode, idContact: idContact, annee: equipment.annee, visite: equipment.visite}) }}" 
+               class="btn btn-outline-secondary btn-lg">
+                <i class="bi bi-x-lg me-1"></i> Annuler
+            </a>
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="bi bi-check-lg me-1"></i> Enregistrer les modifications
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block javascripts %}
+{{ parent() }}
+<script>
+    // Mise à jour dynamique de l'état affiché quand on change le statut
+    document.getElementById('statut_equipement').addEventListener('change', function() {
+        const labels = {{ statut_labels|json_encode()|raw }};
+        const display = document.getElementById('etat_equipement_display');
+        display.value = labels[this.value] || '';
+    });
+</script>
+{% endblock %}
