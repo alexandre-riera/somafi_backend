@@ -261,8 +261,7 @@ class EquipementController extends AbstractController
                 'visite' => $visite,
                 'is_archive' => 0,
                 'is_hors_contrat' => (int) ($data['is_hors_contrat'] ?? 0),
-                'date_creation' => (new \DateTime())->format('Y-m-d H:i:s'),
-                'source' => 'web_crud',
+                'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),
             ]);
 
             $this->connection->insert($tableName, $insertData);
