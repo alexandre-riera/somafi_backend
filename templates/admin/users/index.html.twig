@@ -1,0 +1,411 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Gestion des utilisateurs{% endblock %}
+
+{% block stylesheets %}
+{{ parent() }}
+<style>
+    .admin-header {
+        background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+        color: white;
+        padding: 1.5rem 0;
+        margin-bottom: 2rem;
+    }
+
+    .admin-header h1 {
+        margin: 0;
+        font-size: 1.75rem;
+        font-weight: 700;
+    }
+
+    .admin-header .subtitle {
+        opacity: 0.8;
+        margin-top: 0.25rem;
+    }
+
+    .filters-bar {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        margin-bottom: 1.5rem;
+    }
+
+    .filters-bar .row {
+        align-items: end;
+    }
+
+    .filters-bar label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .users-table {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        overflow: hidden;
+    }
+
+    .users-table table {
+        width: 100%;
+        margin: 0;
+    }
+
+    .users-table thead th {
+        background: #f8f9fa;
+        padding: 0.75rem 1rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid #e9ecef;
+    }
+
+    .users-table tbody td {
+        padding: 0.75rem 1rem;
+        vertical-align: middle;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .users-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+
+    .user-name {
+        font-weight: 600;
+        color: #333;
+    }
+
+    .user-email {
+        font-size: 0.85rem;
+        color: #888;
+    }
+
+    .role-badge {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        margin: 0.1rem;
+        text-transform: uppercase;
+    }
+
+    .role-admin { background: #fee2e2; color: #dc2626; }
+    .role-admin-agence { background: #fef3c7; color: #d97706; }
+    .role-user-agence { background: #dbeafe; color: #2563eb; }
+    .role-edit { background: #e0e7ff; color: #4f46e5; }
+    .role-delete { background: #fce7f3; color: #db2777; }
+    .role-client-cc { background: #d1fae5; color: #059669; }
+    .role-admin-cc { background: #ccfbf1; color: #0d9488; }
+
+    .agency-tag {
+        display: inline-block;
+        padding: 0.1rem 0.4rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: #f1f5f9;
+        color: #475569;
+        margin: 0.05rem;
+    }
+
+    .status-active {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #22c55e;
+    }
+
+    .status-inactive {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #ef4444;
+    }
+
+    .btn-action {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+        border-radius: 4px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        transition: all 0.2s;
+    }
+
+    .btn-edit {
+        background: #e0e7ff;
+        color: #4f46e5;
+        border: 1px solid #c7d2fe;
+    }
+
+    .btn-edit:hover {
+        background: #4f46e5;
+        color: white;
+    }
+
+    .btn-password {
+        background: #fef3c7;
+        color: #d97706;
+        border: 1px solid #fde68a;
+    }
+
+    .btn-password:hover {
+        background: #d97706;
+        color: white;
+    }
+
+    .btn-toggle-active {
+        background: #fecaca;
+        color: #dc2626;
+        border: 1px solid #fca5a5;
+        cursor: pointer;
+    }
+
+    .btn-toggle-active:hover {
+        background: #dc2626;
+        color: white;
+    }
+
+    .btn-toggle-inactive {
+        background: #d1fae5;
+        color: #059669;
+        border: 1px solid #6ee7b7;
+        cursor: pointer;
+    }
+
+    .btn-toggle-inactive:hover {
+        background: #059669;
+        color: white;
+    }
+
+    .last-login {
+        font-size: 0.8rem;
+        color: #888;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: #888;
+    }
+
+    @media (max-width: 992px) {
+        .users-table {
+            overflow-x: auto;
+        }
+
+        .users-table table {
+            min-width: 900px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+{# Header admin #}
+<div class="admin-header">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1>Gestion des utilisateurs</h1>
+                <p class="subtitle mb-0">{{ total_users }} utilisateur{{ total_users > 1 ? 's' : '' }}</p>
+            </div>
+            <a href="{{ path('admin_users_new') }}" class="btn btn-light">
+                + Nouvel utilisateur
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    {# Messages flash #}
+    {% for type, messages in app.flashes %}
+        {% for message in messages %}
+            <div class="alert alert-{{ type == 'error' ? 'danger' : type }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endfor %}
+
+    {# Filtres #}
+    <div class="filters-bar">
+        <form method="get" action="{{ path('admin_users') }}">
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label for="searchFilter">Recherche</label>
+                    <input type="text" class="form-control form-control-sm" id="searchFilter"
+                           name="q" value="{{ search }}" placeholder="Nom, prénom ou email...">
+                </div>
+                <div class="col-md-2">
+                    <label for="roleFilter">Rôle</label>
+                    <select class="form-select form-select-sm" id="roleFilter" name="role">
+                        <option value="">Tous les rôles</option>
+                        {% for group_name, group_roles in available_roles %}
+                            <optgroup label="{{ group_name }}">
+                                {% for role_key, role_label in group_roles %}
+                                    <option value="{{ role_key }}" {{ filter_role == role_key ? 'selected' : '' }}>
+                                        {{ role_label }}
+                                    </option>
+                                {% endfor %}
+                            </optgroup>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="agencyFilter">Agence</label>
+                    <select class="form-select form-select-sm" id="agencyFilter" name="agency">
+                        <option value="">Toutes</option>
+                        {% for agency in agencies %}
+                            <option value="{{ agency }}" {{ filter_agency == agency ? 'selected' : '' }}>
+                                {{ agency }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="statusFilter">Statut</label>
+                    <select class="form-select form-select-sm" id="statusFilter" name="status">
+                        <option value="">Tous</option>
+                        <option value="active" {{ filter_status == 'active' ? 'selected' : '' }}>Actifs</option>
+                        <option value="inactive" {{ filter_status == 'inactive' ? 'selected' : '' }}>Inactifs</option>
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+                    <a href="{{ path('admin_users') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {# Tableau des utilisateurs #}
+    <div class="users-table">
+        {% if users|length > 0 %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Statut</th>
+                    <th>Utilisateur</th>
+                    <th>Rôles</th>
+                    <th>Agences</th>
+                    <th>Contrat cadre</th>
+                    <th>Dernière connexion</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    {# Statut #}
+                    <td class="text-center">
+                        <span class="{{ user.active ? 'status-active' : 'status-inactive' }}"
+                              title="{{ user.active ? 'Actif' : 'Inactif' }}"></span>
+                    </td>
+
+                    {# Nom + Email #}
+                    <td>
+                        <div class="user-name">{{ user.fullName }}</div>
+                        <div class="user-email">{{ user.email }}</div>
+                    </td>
+
+                    {# Rôles (badges colorés) #}
+                    <td>
+                        {% for role in user.roles %}
+                            {% if role != 'ROLE_USER' %}
+                                {% set role_class = 'role-admin' %}
+                                {% if role == 'ROLE_ADMIN_AGENCE' %}{% set role_class = 'role-admin-agence' %}
+                                {% elseif role == 'ROLE_USER_AGENCE' %}{% set role_class = 'role-user-agence' %}
+                                {% elseif role == 'ROLE_EDIT' %}{% set role_class = 'role-edit' %}
+                                {% elseif role == 'ROLE_DELETE' %}{% set role_class = 'role-delete' %}
+                                {% elseif role == 'ROLE_CLIENT_CC' %}{% set role_class = 'role-client-cc' %}
+                                {% elseif role == 'ROLE_ADMIN_CC' %}{% set role_class = 'role-admin-cc' %}
+                                {% endif %}
+                                <span class="role-badge {{ role_class }}">
+                                    {{ role|replace({'ROLE_': ''}) }}
+                                </span>
+                            {% endif %}
+                        {% endfor %}
+                    </td>
+
+                    {# Agences #}
+                    <td>
+                        {% if user.agencies %}
+                            {% for agency in user.agencies %}
+                                <span class="agency-tag">{{ agency }}</span>
+                            {% endfor %}
+                        {% else %}
+                            <span class="text-muted" style="font-size: 0.8rem;">—</span>
+                        {% endif %}
+                    </td>
+
+                    {# Contrat cadre #}
+                    <td>
+                        {% if user.contratCadre %}
+                            <span class="agency-tag" style="background: #d1fae5; color: #059669;">
+                                {{ user.contratCadre.nom }}
+                            </span>
+                        {% else %}
+                            <span class="text-muted" style="font-size: 0.8rem;">—</span>
+                        {% endif %}
+                    </td>
+
+                    {# Dernière connexion #}
+                    <td>
+                        <span class="last-login">
+                            {% if user.lastLoginAt %}
+                                {{ user.lastLoginAt|date('d/m/Y H:i') }}
+                            {% else %}
+                                Jamais
+                            {% endif %}
+                        </span>
+                    </td>
+
+                    {# Actions #}
+                    <td>
+                        <div class="d-flex gap-1 flex-wrap">
+                            <a href="{{ path('admin_users_edit', {id: user.id}) }}" 
+                               class="btn-action btn-edit" title="Modifier">
+                                ✏️ Éditer
+                            </a>
+                            <a href="{{ path('admin_users_password', {id: user.id}) }}" 
+                               class="btn-action btn-password" title="Changer le mot de passe">
+                                🔑 MDP
+                            </a>
+                            {# Toggle — pas sur son propre compte #}
+                            {% if user.id != app.user.id %}
+                            <form method="post" action="{{ path('admin_users_toggle', {id: user.id}) }}" 
+                                  style="display: inline;"
+                                  onsubmit="return confirm('{{ user.active ? 'Désactiver' : 'Activer' }} {{ user.fullName }} ?');">
+                                <input type="hidden" name="_token" value="{{ csrf_token('user_toggle_' ~ user.id) }}">
+                                <button type="submit" 
+                                        class="btn-action {{ user.active ? 'btn-toggle-active' : 'btn-toggle-inactive' }}">
+                                    {{ user.active ? '🚫 Désactiver' : '✅ Activer' }}
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>Aucun utilisateur trouvé avec ces critères.</p>
+            <a href="{{ path('admin_users') }}" class="btn btn-sm btn-outline-primary">Réinitialiser les filtres</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

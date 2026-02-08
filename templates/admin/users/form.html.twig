@@ -1,0 +1,331 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ is_edit ? 'Modifier' : 'Créer' }} un utilisateur{% endblock %}
+
+{% block stylesheets %}
+{{ parent() }}
+<style>
+    .form-header {
+        background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+        color: white;
+        padding: 1.5rem 0;
+        margin-bottom: 2rem;
+    }
+
+    .form-header h1 {
+        margin: 0;
+        font-size: 1.75rem;
+        font-weight: 700;
+    }
+
+    .form-card {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-card h3 {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #2c3e50;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #e9ecef;
+    }
+
+    .roles-group {
+        margin-bottom: 0.75rem;
+    }
+
+    .roles-group-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.5rem;
+    }
+
+    .role-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.75rem;
+        border-radius: 6px;
+        margin-bottom: 0.25rem;
+        transition: background 0.2s;
+    }
+
+    .role-checkbox:hover {
+        background: #f8f9fa;
+    }
+
+    .role-checkbox label {
+        font-size: 0.9rem;
+        cursor: pointer;
+        flex: 1;
+    }
+
+    .role-checkbox .role-desc {
+        font-size: 0.75rem;
+        color: #888;
+    }
+
+    .agencies-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 0.5rem;
+    }
+
+    .agency-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid #e9ecef;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .agency-checkbox:hover {
+        border-color: #2563eb;
+        background: #f0f4ff;
+    }
+
+    .agency-checkbox input:checked + span {
+        font-weight: 700;
+        color: #2563eb;
+    }
+
+    .agency-checkbox span {
+        font-size: 0.85rem;
+    }
+
+    .cc-section {
+        display: none;
+        margin-top: 1rem;
+        padding: 1rem;
+        background: #f0fdf4;
+        border-radius: 6px;
+        border: 1px solid #bbf7d0;
+    }
+
+    .cc-section.visible {
+        display: block;
+    }
+
+    .error-list {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        padding: 1rem 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .error-list ul {
+        margin: 0;
+        padding-left: 1.25rem;
+    }
+
+    .error-list li {
+        color: #dc2626;
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+{# Header #}
+<div class="form-header">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center">
+            <h1>{{ is_edit ? 'Modifier' : 'Créer' }} un utilisateur</h1>
+            <a href="{{ path('admin_users') }}" class="btn btn-outline-light btn-sm">← Retour à la liste</a>
+        </div>
+    </div>
+</div>
+
+<div class="container" style="max-width: 800px;">
+    {# Erreurs #}
+    {% if errors|length > 0 %}
+    <div class="error-list">
+        <strong>Erreurs :</strong>
+        <ul>
+            {% for error in errors %}
+                <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" 
+          action="{{ is_edit ? path('admin_users_edit', {id: user.id}) : path('admin_users_new') }}"
+          id="userForm">
+        
+        <input type="hidden" name="_token" 
+               value="{{ csrf_token(is_edit ? 'user_edit_' ~ user.id : 'user_new') }}">
+
+        {# ===== Informations personnelles ===== #}
+        <div class="form-card">
+            <h3>Informations personnelles</h3>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="prenom" class="form-label">Prénom *</label>
+                    <input type="text" class="form-control" id="prenom" name="prenom"
+                           value="{{ user ? user.prenom : '' }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label for="nom" class="form-label">Nom *</label>
+                    <input type="text" class="form-control" id="nom" name="nom"
+                           value="{{ user ? user.nom : '' }}" required>
+                </div>
+                <div class="col-md-12">
+                    <label for="email" class="form-label">Email *</label>
+                    <input type="email" class="form-control" id="email" name="email"
+                           value="{{ user ? user.email : '' }}" required>
+                </div>
+                {% if not is_edit %}
+                <div class="col-md-12">
+                    <label for="password" class="form-label">Mot de passe * <small class="text-muted">(min. 8 caractères)</small></label>
+                    <input type="password" class="form-control" id="password" name="password"
+                           minlength="8" required>
+                </div>
+                {% endif %}
+                <div class="col-md-12">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="1"
+                               {{ (user is null or user.active) ? 'checked' : '' }}>
+                        <label class="form-check-label" for="is_active">Compte actif</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ===== Rôles ===== #}
+        <div class="form-card">
+            <h3>Rôles</h3>
+            {% for group_name, group_roles in available_roles %}
+            <div class="roles-group">
+                <div class="roles-group-label">{{ group_name }}</div>
+                {% for role_key, role_label in group_roles %}
+                <div class="role-checkbox">
+                    <input type="checkbox" 
+                           id="role_{{ role_key }}" 
+                           name="roles[]" 
+                           value="{{ role_key }}"
+                           class="form-check-input role-input"
+                           data-role="{{ role_key }}"
+                           {{ user and role_key in user.roles ? 'checked' : '' }}>
+                    <label for="role_{{ role_key }}">
+                        {{ role_label }}
+                        <span class="role-desc">{{ role_key }}</span>
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+        </div>
+
+        {# ===== Agences ===== #}
+        <div class="form-card">
+            <h3>Agences accessibles</h3>
+            <p class="text-muted" style="font-size: 0.85rem;">
+                Sélectionne les agences auxquelles cet utilisateur aura accès.
+            </p>
+            <div class="agencies-grid">
+                {% for agency in agencies %}
+                <label class="agency-checkbox">
+                    <input type="checkbox" name="agencies[]" value="{{ agency }}"
+                           {{ user and user.agencies and agency in user.agencies ? 'checked' : '' }}>
+                    <span>{{ agency }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            <div class="mt-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="selectAllAgencies">
+                    Tout sélectionner
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllAgencies">
+                    Tout désélectionner
+                </button>
+            </div>
+        </div>
+
+        {# ===== Contrat Cadre (conditionnel) ===== #}
+        <div class="form-card">
+            <h3>Contrat Cadre</h3>
+            <div class="cc-section {{ (user and user.contratCadre) ? 'visible' : '' }}" id="ccSection">
+                <label for="contrat_cadre_id" class="form-label">Contrat cadre associé</label>
+                <select class="form-select" id="contrat_cadre_id" name="contrat_cadre_id">
+                    <option value="">— Aucun —</option>
+                    {% for cc in contrats_cadre %}
+                        <option value="{{ cc.id }}" 
+                                {{ user and user.contratCadre and user.contratCadre.id == cc.id ? 'selected' : '' }}>
+                            {{ cc.nom }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <small class="text-muted mt-1 d-block">
+                    Requis si le rôle CLIENT_CC ou ADMIN_CC est sélectionné.
+                </small>
+            </div>
+            <p class="text-muted mb-0" style="font-size: 0.85rem;" id="ccHint">
+                Sélectionne un rôle Contrat Cadre (CLIENT_CC ou ADMIN_CC) pour afficher les options.
+            </p>
+        </div>
+
+        {# ===== Boutons ===== #}
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <a href="{{ path('admin_users') }}" class="btn btn-outline-secondary">Annuler</a>
+            <button type="submit" class="btn btn-primary btn-lg">
+                {{ is_edit ? '💾 Enregistrer les modifications' : '✅ Créer l\'utilisateur' }}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block javascripts %}
+{{ parent() }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const roleInputs = document.querySelectorAll('.role-input');
+    const ccSection = document.getElementById('ccSection');
+    const ccHint = document.getElementById('ccHint');
+    const selectAllBtn = document.getElementById('selectAllAgencies');
+    const deselectAllBtn = document.getElementById('deselectAllAgencies');
+    const agencyCheckboxes = document.querySelectorAll('input[name="agencies[]"]');
+
+    // Toggle section Contrat Cadre selon les rôles cochés
+    function updateCcVisibility() {
+        const checkedRoles = Array.from(roleInputs)
+            .filter(input => input.checked)
+            .map(input => input.value);
+        
+        const needsCc = checkedRoles.includes('ROLE_CLIENT_CC') || checkedRoles.includes('ROLE_ADMIN_CC');
+        
+        ccSection.classList.toggle('visible', needsCc);
+        ccHint.style.display = needsCc ? 'none' : 'block';
+    }
+
+    roleInputs.forEach(input => {
+        input.addEventListener('change', updateCcVisibility);
+    });
+
+    // Initial state
+    updateCcVisibility();
+
+    // Select/Deselect all agencies
+    selectAllBtn.addEventListener('click', function() {
+        agencyCheckboxes.forEach(cb => cb.checked = true);
+    });
+
+    deselectAllBtn.addEventListener('click', function() {
+        agencyCheckboxes.forEach(cb => cb.checked = false);
+    });
+});
+</script>
+{% endblock %}
