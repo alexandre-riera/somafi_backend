@@ -2,9 +2,9 @@
 
 namespace App\Command\Kizeo;
 
-use App\DTO\Kizeo\ExtractedMedia;
 use App\Repository\KizeoJobRepository;
 use App\Service\Kizeo\KizeoApiService;
+use App\Service\Kizeo\PhotoTypeResolver;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
@@ -25,6 +25,11 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * Endpoint API : GET /forms/{formId}/data/{dataId}/medias/{mediaName}
  * Stockage     : storage/img/{agency}/{id_contact}/{annee}/{visite}/{filename}
  * 
+ * Résolution du type de photo :
+ *   Le media_name Kizeo est un hash chiffré (ex: c104785f...484c90c0-6b...).
+ *   Le PhotoTypeResolver croise ce hash avec les colonnes photo_* de la table photos
+ *   pour retrouver le vrai type (plaque, etiquette_somafi, compte_rendu, etc.).
+ * 
  * Usage:
  *   php bin/console app:kizeo:download-media                          # 200 jobs par défaut
  *   php bin/console app:kizeo:download-media --limit=500 --chunk=20   # 500 jobs, chunks de 20
@@ -39,6 +44,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  *   php bin/console app:kizeo:download-media --limit=100 --chunk=10
  * 
  * @author Alex - Session 07/02/2026
+ * @updated Session 08/02/2026 - Intégration PhotoTypeResolver (croisement table photos)
  */
 #[AsCommand(
     name: 'app:kizeo:download-media',
@@ -60,6 +66,7 @@ class DownloadMediaCommand extends Command
         private readonly KizeoJobRepository $jobRepository,
         private readonly EntityManagerInterface $em,
         private readonly Connection $connection,
+        private readonly PhotoTypeResolver $photoTypeResolver,
         private readonly LoggerInterface $kizeoLogger,
         #[Autowire('%kernel.project_dir%')]
         private readonly string $projectDir,
@@ -149,6 +156,9 @@ class DownloadMediaCommand extends Command
                     $chunkIndex + 1, count($chunks), count($chunk)));
             }
 
+            // ━━━ Résolution batch des types photo via croisement table photos ━━━
+            $photoTypes = $this->photoTypeResolver->resolveBatch($chunk);
+
             // Marquer le chunk comme processing
             if (!$dryRun) {
                 $this->markChunkProcessing($chunk);
@@ -156,7 +166,12 @@ class DownloadMediaCommand extends Command
 
             // Traiter chaque job du chunk
             foreach ($chunk as $job) {
-                $jobResult = $this->processJob($job, $dryRun, $isVerbose, $io);
+                $jobId = (int) $job['id'];
+
+                // Type résolu depuis le croisement kizeo_jobs ↔ photos
+                $photoType = $photoTypes[$jobId] ?? 'autre';
+
+                $jobResult = $this->processJob($job, $photoType, $dryRun, $isVerbose, $io);
 
                 match ($jobResult['status']) {
                     'done' => $stats['downloaded']++,
@@ -177,6 +192,9 @@ class DownloadMediaCommand extends Command
                 $this->em->flush();
                 $this->em->clear();
             }
+
+            // Libérer le cache du resolver (mémoire)
+            $this->photoTypeResolver->clearCache();
 
             // Vérification mémoire
             $this->checkMemoryUsage($io);
@@ -239,10 +257,11 @@ class DownloadMediaCommand extends Command
     /**
      * Traite un job photo individuel
      * 
-     * @param array<string, mixed> $job Données du job depuis kizeo_jobs
+     * @param array<string, mixed> $job       Données du job depuis kizeo_jobs
+     * @param string               $photoType Type résolu via PhotoTypeResolver (ex: "plaque", "etiquette_somafi")
      * @return array{status: string, file_size: int}
      */
-    private function processJob(array $job, bool $dryRun, bool $isVerbose, SymfonyStyle $io): array
+    private function processJob(array $job, string $photoType, bool $dryRun, bool $isVerbose, SymfonyStyle $io): array
     {
         $jobId = (int) $job['id'];
         $formId = (int) $job['form_id'];
@@ -263,11 +282,16 @@ class DownloadMediaCommand extends Command
             return ['status' => 'skipped', 'file_size' => 0];
         }
 
+        // Détecter multi-media (media_names séparés par virgule)
+        $mediaNames = array_filter(array_map('trim', explode(',', $mediaName)));
+        $isMultiMedia = count($mediaNames) > 1;
+
         // Dry-run : afficher seulement
         if ($dryRun) {
+            $suffix = $isMultiMedia ? sprintf(' [MULTI:%d]', count($mediaNames)) : '';
             if ($isVerbose) {
-                $io->text(sprintf('      📷 Job #%d: %s/%s → %s_%s [DRY-RUN]',
-                    $jobId, $agencyCode, $idContact, $equipNumero, $this->derivePhotoType($mediaName)));
+                $io->text(sprintf('      📷 Job #%d: %s/%d → %s_%s%s [DRY-RUN]',
+                    $jobId, $agencyCode, $idContact, $equipNumero, $photoType, $suffix));
             }
             return ['status' => 'done', 'file_size' => 0];
         }
@@ -279,27 +303,63 @@ class DownloadMediaCommand extends Command
                 ['id' => $jobId]
             );
 
-            // Appel API Kizeo : GET /forms/{formId}/data/{dataId}/medias/{mediaName}
-            $imageContent = $this->kizeoApi->downloadMedia($formId, $dataId, $mediaName);
+            $totalBytes = 0;
+            $lastPath = '';
 
-            if ($imageContent === null || $imageContent === '' || $imageContent === false) {
-                throw new \RuntimeException('API a retourné un contenu vide');
+            foreach ($mediaNames as $partIndex => $singleMedia) {
+                // Suffixe _p1, _p2... uniquement si multi-media
+                $partType = $isMultiMedia
+                    ? $photoType . '_p' . ($partIndex + 1)
+                    : $photoType;
+
+                // Appel API Kizeo : GET /forms/{formId}/data/{dataId}/medias/{mediaName}
+                $imageContent = $this->kizeoApi->downloadMedia($formId, $dataId, $singleMedia);
+
+                if ($imageContent === null || $imageContent === '' || $imageContent === false) {
+                    if ($isMultiMedia) {
+                        // En multi-media, on log et on continue les autres parties
+                        $this->kizeoLogger->warning('Multi-media: partie vide', [
+                            'job_id' => $jobId,
+                            'part' => $partIndex + 1,
+                            'total_parts' => count($mediaNames),
+                            'media_name' => $singleMedia,
+                        ]);
+                        continue;
+                    }
+                    throw new \RuntimeException('API a retourné un contenu vide');
+                }
+
+                // Construire le chemin local avec le type résolu
+                $localPath = $this->buildLocalPath($agencyCode, $idContact, $annee, $visite, $equipNumero, $partType, $dataId);
+
+                // Créer le répertoire si nécessaire
+                $dir = dirname($localPath);
+                if (!is_dir($dir)) {
+                    mkdir($dir, 0755, true);
+                }
+
+                // Écrire le fichier
+                $bytesWritten = file_put_contents($localPath, $imageContent);
+
+                if ($bytesWritten === false) {
+                    throw new \RuntimeException('Impossible d\'écrire le fichier : ' . $localPath);
+                }
+
+                $totalBytes += $bytesWritten;
+                $lastPath = $localPath;
+
+                // Libérer mémoire
+                unset($imageContent);
+
+                if ($isVerbose && $isMultiMedia) {
+                    $io->text(sprintf('        📎 Part %d/%d: %s (%.1f KB)',
+                        $partIndex + 1, count($mediaNames), basename($localPath), $bytesWritten / 1024));
+                }
             }
 
-            // Construire le chemin local
-            $localPath = $this->buildLocalPath($agencyCode, $idContact, $annee, $visite, $equipNumero, $mediaName, $dataId);
-
-            // Créer le répertoire si nécessaire
-            $dir = dirname($localPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            // Écrire le fichier
-            $bytesWritten = file_put_contents($localPath, $imageContent);
-
-            if ($bytesWritten === false) {
-                throw new \RuntimeException('Impossible d\'écrire le fichier : ' . $localPath);
+            // Vérifier qu'au moins une partie a été téléchargée
+            if ($totalBytes === 0) {
+                throw new \RuntimeException('Aucune partie téléchargée (multi-media: ' . count($mediaNames) . ' parties)');
             }
 
             // Marquer done
@@ -307,21 +367,20 @@ class DownloadMediaCommand extends Command
                 'UPDATE kizeo_jobs SET status = :status, local_path = :path, file_size = :size, completed_at = NOW() WHERE id = :id',
                 [
                     'status' => 'done',
-                    'path' => $localPath,
-                    'size' => $bytesWritten,
+                    'path' => $lastPath,
+                    'size' => $totalBytes,
                     'id' => $jobId,
                 ]
             );
 
-            // Libérer mémoire
-            unset($imageContent);
+            // Mettre à jour la table photos (is_downloaded + local_path)
+            $this->updatePhotoRecord($equipNumero, $idContact, $annee, $visite, $lastPath);
 
             if ($isVerbose) {
-                $io->text(sprintf('      ✅ #%d: %s/%d/%s/%s/%s (%.1f KB)',
+                $multiLabel = $isMultiMedia ? sprintf(' [%d parts]', count($mediaNames)) : '';
+                $io->text(sprintf('      ✅ #%d: %s/%d/%s/%s/%s (%.1f KB)%s',
                     $jobId, $agencyCode, $idContact, $annee, $visite,
-                    basename($localPath),
-                    $bytesWritten / 1024
-                ));
+                    basename($lastPath), $totalBytes / 1024, $multiLabel));
             }
 
             $this->kizeoLogger->debug('Photo téléchargée', [
@@ -329,11 +388,14 @@ class DownloadMediaCommand extends Command
                 'form_id' => $formId,
                 'data_id' => $dataId,
                 'media_name' => $mediaName,
-                'local_path' => $localPath,
-                'file_size' => $bytesWritten,
+                'photo_type' => $photoType,
+                'multi_media' => $isMultiMedia,
+                'parts' => count($mediaNames),
+                'local_path' => $lastPath,
+                'file_size' => $totalBytes,
             ]);
 
-            return ['status' => 'done', 'file_size' => $bytesWritten];
+            return ['status' => 'done', 'file_size' => $totalBytes];
 
         } catch (\Exception $e) {
             // Marquer failed
@@ -351,6 +413,8 @@ class DownloadMediaCommand extends Command
                 'form_id' => $formId,
                 'data_id' => $dataId,
                 'media_name' => $mediaName,
+                'photo_type' => $photoType,
+                'multi_media' => $isMultiMedia,
                 'error' => $e->getMessage(),
                 'attempts' => $attempts + 1,
             ]);
@@ -376,6 +440,9 @@ class DownloadMediaCommand extends Command
      * Le data_id est inclus dans le nom pour garantir l'unicité :
      * un même client peut avoir plusieurs CR (data_ids) pour la même visite,
      * chacun contenant des photos du même type pour le même équipement.
+     * 
+     * Le photoType est résolu par PhotoTypeResolver via croisement avec la table photos
+     * (ex: "plaque", "etiquette_somafi", "compte_rendu" au lieu de "autre").
      */
     private function buildLocalPath(
         string $agencyCode,
@@ -383,19 +450,14 @@ class DownloadMediaCommand extends Command
         string $annee,
         string $visite,
         string $equipNumero,
-        string $mediaName,
+        string $photoType,
         int $dataId
     ): string {
-        $photoType = $this->derivePhotoType($mediaName);
-        $extension = pathinfo($mediaName, PATHINFO_EXTENSION) ?: 'jpg';
-        $extension = strtolower($extension);
-
-        // Format : {equipNumero}_{photoType}_{dataId}.{ext}
-        $filename = sprintf('%s_%s_%d.%s',
+        // Format : {equipNumero}_{photoType}_{dataId}.jpg
+        $filename = sprintf('%s_%s_%d.jpg',
             $this->sanitizeFilename($equipNumero),
             $photoType,
-            $dataId,
-            $extension
+            $dataId
         );
 
         return sprintf('%s/img/%s/%d/%s/%s/%s',
@@ -409,16 +471,6 @@ class DownloadMediaCommand extends Command
     }
 
     /**
-     * Déduit le type de photo depuis le media_name Kizeo
-     * 
-     * Utilise la logique de ExtractedMedia::normalizePhotoType()
-     */
-    private function derivePhotoType(string $mediaName): string
-    {
-        return ExtractedMedia::normalizePhotoType($mediaName);
-    }
-
-    /**
      * Sanitize un nom pour utilisation dans un nom de fichier
      */
     private function sanitizeFilename(string $name): string
@@ -427,6 +479,50 @@ class DownloadMediaCommand extends Command
         $sanitized = preg_replace('/[^a-zA-Z0-9_-]/', '_', $name);
         // Supprimer les underscores multiples
         return preg_replace('/_+/', '_', trim($sanitized, '_'));
+    }
+
+    // =========================================================================
+    // MISE À JOUR TABLE PHOTOS
+    // =========================================================================
+
+    /**
+     * Met à jour la table photos après téléchargement réussi
+     * 
+     * Marque is_downloaded = 1 et enregistre le local_path.
+     * Ne fait rien si la ligne n'existe pas (équipement hors-contrat par ex).
+     */
+    private function updatePhotoRecord(
+        string $equipNumero,
+        int $idContact,
+        string $annee,
+        string $visite,
+        string $localPath,
+    ): void {
+        try {
+            $this->connection->executeStatement(
+                'UPDATE photos 
+                 SET is_downloaded = 1, local_path = :path, date_modification = NOW() 
+                 WHERE numero_equipement = :eq 
+                 AND id_contact = :ic 
+                 AND annee = :an 
+                 AND visite = :vi 
+                 AND is_downloaded = 0',
+                [
+                    'path' => $localPath,
+                    'eq' => $equipNumero,
+                    'ic' => $idContact,
+                    'an' => $annee,
+                    'vi' => $visite,
+                ]
+            );
+        } catch (\Exception $e) {
+            // Non bloquant — on log mais on ne fait pas échouer le job
+            $this->kizeoLogger->debug('Impossible de mettre à jour photos.is_downloaded', [
+                'equipment_numero' => $equipNumero,
+                'id_contact' => $idContact,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     // =========================================================================
