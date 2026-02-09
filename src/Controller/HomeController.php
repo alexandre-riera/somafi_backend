@@ -52,7 +52,7 @@ class HomeController extends AbstractController
 
         // Client Contrat Cadre -> redirection vers son espace
         if ($user && $user->isContratCadreUser() && $user->getContratCadre()) {
-            return $this->redirectToRoute('app_contrat_cadre', [
+            return $this->redirectToRoute('app_contrat_cadre_sites', [
                 'slug' => $user->getContratCadre()->getSlug(),
             ]);
         }
