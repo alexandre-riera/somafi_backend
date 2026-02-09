@@ -6,7 +6,6 @@ use App\Repository\KizeoJobRepository;
 use App\Service\Kizeo\KizeoApiService;
 use App\Service\Kizeo\PhotoTypeResolver;
 use Doctrine\DBAL\Connection;
-use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -64,7 +63,6 @@ class DownloadMediaCommand extends Command
     public function __construct(
         private readonly KizeoApiService $kizeoApi,
         private readonly KizeoJobRepository $jobRepository,
-        private readonly EntityManagerInterface $em,
         private readonly Connection $connection,
         private readonly PhotoTypeResolver $photoTypeResolver,
         private readonly LoggerInterface $kizeoLogger,
@@ -105,6 +103,11 @@ class DownloadMediaCommand extends Command
 
         $startTime = microtime(true);
 
+        // ━━━ FIX OOM : Désactiver le SQL logger Doctrine (DebugStack) ━━━
+        // En mode dev, Doctrine stocke CHAQUE requête SQL en mémoire.
+        // Avec 50 000 jobs × 3-5 requêtes = 150K+ entrées → OOM garanti.
+        $this->connection->getConfiguration()->setMiddlewares([]);
+
         // Header
         $io->title('SOMAFI - Download Media (Photos Équipements Kizeo)');
         $io->text(sprintf('📅 %s', (new \DateTime())->format('d/m/Y H:i:s')));
@@ -127,33 +130,50 @@ class DownloadMediaCommand extends Command
             $io->text(sprintf('🔧 %d jobs bloqués remis en pending', $stuckCount));
         }
 
-        // 2. Récupérer les jobs photo pending
-        $jobs = $this->getPendingPhotoJobs($limit, $agencyCode);
+        // 2. Compter les jobs photo pending (sans tout charger en mémoire)
+        $totalJobs = $this->countPendingPhotoJobs($limit, $agencyCode);
 
-        if (empty($jobs)) {
+        if ($totalJobs === 0) {
             $io->success('Aucun job photo en attente.');
             return Command::SUCCESS;
         }
 
-        $io->text(sprintf('📷 %d jobs photo à traiter', count($jobs)));
+        $io->text(sprintf('📷 %d jobs photo à traiter', $totalJobs));
         $io->newLine();
 
         // Stats
         $stats = [
-            'total' => count($jobs),
+            'total' => $totalJobs,
             'downloaded' => 0,
             'failed' => 0,
             'skipped' => 0,
             'total_bytes' => 0,
         ];
 
-        // 3. Traiter par chunks
-        $chunks = array_chunk($jobs, $chunkSize);
+        // 3. Traiter par chunks — fetch progressif depuis la DB
+        //    Au lieu de charger 50 000 rows d'un coup, on fetch chunk par chunk.
+        //    Les jobs traités passent en done/failed, donc le LIMIT suivant
+        //    retourne automatiquement les prochains pending.
+        $chunkIndex = 0;
+        $totalChunks = (int) ceil($totalJobs / $chunkSize);
+        $dryRunOffset = 0; // En dry-run, les jobs restent 'pending' → on doit paginer avec OFFSET
 
-        foreach ($chunks as $chunkIndex => $chunk) {
+        while (true) {
+            // Fetch un chunk depuis la DB (les done/failed sont exclus automatiquement)
+            $chunk = $this->getPendingPhotoJobs($chunkSize, $agencyCode, $dryRun ? $dryRunOffset : 0);
+
+            if (empty($chunk)) {
+                break; // Plus de jobs pending
+            }
+
+            if ($dryRun) {
+                $dryRunOffset += count($chunk);
+            }
+
+            $chunkIndex++;
             if ($isVerbose) {
-                $io->text(sprintf('   📦 Chunk %d/%d (%d jobs)',
-                    $chunkIndex + 1, count($chunks), count($chunk)));
+                $io->text(sprintf('   📦 Chunk %d/~%d (%d jobs)',
+                    $chunkIndex, $totalChunks, count($chunk)));
             }
 
             // ━━━ Résolution batch des types photo via croisement table photos ━━━
@@ -187,11 +207,10 @@ class DownloadMediaCommand extends Command
                 }
             }
 
-            // Flush + clear mémoire après chaque chunk
-            if (!$dryRun) {
-                $this->em->flush();
-                $this->em->clear();
-            }
+            // ━━━ FIX OOM : Nettoyage mémoire après chaque chunk ━━━
+            // Note: on utilise DBAL direct (pas d'entités ORM), donc flush/clear
+            // de l'EntityManager est inutile ici. On force le GC à la place.
+            gc_collect_cycles();
 
             // Libérer le cache du resolver (mémoire)
             $this->photoTypeResolver->clearCache();
@@ -206,6 +225,14 @@ class DownloadMediaCommand extends Command
                 $stats['downloaded'], $stats['failed'], $stats['skipped'],
                 $stats['total_bytes'] / 1024 / 1024
             ));
+
+            // ━━━ FIX OOM : Libérer le chunk traité ━━━
+            unset($chunk, $photoTypes);
+
+            // Vérifier si on a atteint la limite demandée
+            if ($processed >= $limit) {
+                break;
+            }
         }
 
         // Résumé final
@@ -530,13 +557,11 @@ class DownloadMediaCommand extends Command
     // =========================================================================
 
     /**
-     * Récupère les jobs photo en attente
-     * 
-     * @return array<int, array<string, mixed>>
+     * Compte les jobs photo en attente (sans charger les données)
      */
-    private function getPendingPhotoJobs(int $limit, ?string $agencyCode = null): array
+    private function countPendingPhotoJobs(int $maxCount, ?string $agencyCode = null): int
     {
-        $sql = "SELECT * FROM kizeo_jobs 
+        $sql = "SELECT COUNT(*) FROM kizeo_jobs 
                 WHERE job_type = 'photo' 
                 AND status = 'pending'";
         $params = [];
@@ -546,12 +571,35 @@ class DownloadMediaCommand extends Command
             $params['agency'] = strtoupper($agencyCode);
         }
 
-        $sql .= ' ORDER BY priority ASC, created_at ASC LIMIT :limit';
-        $params['limit'] = $limit;
+        $count = (int) $this->connection->fetchOne($sql, $params);
+        return min($count, $maxCount);
+    }
 
-        return $this->connection->fetchAllAssociative($sql, $params, [
-            'limit' => \Doctrine\DBAL\ParameterType::INTEGER,
-        ]);
+    /**
+     * Récupère les jobs photo en attente
+     * 
+     * @return array<int, array<string, mixed>>
+     */
+    private function getPendingPhotoJobs(int $limit, ?string $agencyCode = null, int $offset = 0): array
+    {
+        $sql = "SELECT * FROM kizeo_jobs 
+                WHERE job_type = 'photo' 
+                AND status = 'pending'";
+        $params = [];
+        $types = [];
+
+        if ($agencyCode) {
+            $sql .= ' AND agency_code = :agency';
+            $params['agency'] = strtoupper($agencyCode);
+        }
+
+        $sql .= ' ORDER BY priority ASC, created_at ASC LIMIT :limit OFFSET :offset';
+        $params['limit'] = $limit;
+        $params['offset'] = $offset;
+        $types['limit'] = \Doctrine\DBAL\ParameterType::INTEGER;
+        $types['offset'] = \Doctrine\DBAL\ParameterType::INTEGER;
+
+        return $this->connection->fetchAllAssociative($sql, $params, $types);
     }
 
     /**
@@ -617,13 +665,19 @@ class DownloadMediaCommand extends Command
         $currentMemory = memory_get_usage(true);
 
         if ($currentMemory > self::MEMORY_CHECK_THRESHOLD) {
-            $this->em->clear();
             gc_collect_cycles();
 
+            $afterMemory = memory_get_usage(true);
             $this->kizeoLogger->info('Memory cleanup (download-media)', [
                 'before_mb' => round($currentMemory / 1024 / 1024, 1),
-                'after_mb' => round(memory_get_usage(true) / 1024 / 1024, 1),
+                'after_mb' => round($afterMemory / 1024 / 1024, 1),
             ]);
+
+            // Si le GC n'a rien libéré et qu'on est à 80%+ de la limite, alerter
+            if ($afterMemory > $currentMemory * 0.95) {
+                $io->warning(sprintf('⚠️ Mémoire élevée : %d MB — le GC n\'a pas libéré significativement',
+                    round($afterMemory / 1024 / 1024)));
+            }
         }
     }
 }
