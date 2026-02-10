@@ -264,6 +264,14 @@ class HomeController extends AbstractController
         // Vérifier que le fichier existe sur le disque
         $filePath = $job['local_path'];
         if (!$filePath || !file_exists($filePath)) {
+            // Fallback : reconstruire le chemin depuis le project dir
+            $filename = basename($filePath);
+            $filePath = $this->getParameter('kernel.project_dir') . '/storage/pdf/' 
+                . $agencyCode . '/' . $job['id_contact'] . '/' 
+                . $job['annee'] . '/' . $job['visite'] . '/' . $filename;
+        }
+
+        if (!file_exists($filePath)) {
             throw $this->createNotFoundException('Fichier PDF non trouvé sur le serveur');
         }
 
