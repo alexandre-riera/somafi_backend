@@ -497,15 +497,56 @@
 {% block javascripts %}
 {{ parent() }}
 <script>
-    // Génération PDF (à implémenter)
+    // =========================================================================
+    // Génération PDF Compte Rendu Client
+    // =========================================================================
     document.getElementById('btnGeneratePdf').addEventListener('click', function() {
+        const btn = this;
         const includePhotos = document.getElementById('includePhotos').checked;
-        
-        // TODO: Implémenter la route PDF
-        alert('Génération PDF à implémenter\nAgence: {{ agencyCode }}\nClient: {{ client.id_contact }}\nAnnée: {{ annee }}\nVisite: {{ visite }}\nPhotos: ' + (includePhotos ? 'Oui' : 'Non'));
+        const url = '{{ path('app_generate_client_pdf', {agencyCode: agencyCode, idContact: client.id_contact}) }}';
+
+        // Feedback visuel
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Génération en cours...';
+
+        // Construire le body en FormData (POST)
+        const formData = new FormData();
+        formData.append('annee', '{{ annee }}');
+        formData.append('visite', '{{ visite }}');
+        formData.append('include_photos', includePhotos ? '1' : '0');
+
+        fetch(url, {
+            method: 'POST',
+            body: formData,
+        })
+        .then(response => {
+            if (!response.ok) {
+                // Essayer de lire le JSON d'erreur
+                return response.json().then(data => {
+                    throw new Error(data.error || 'Erreur lors de la génération du PDF');
+                });
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            // Ouvrir le PDF dans un nouvel onglet
+            const pdfUrl = URL.createObjectURL(blob);
+            window.open(pdfUrl, '_blank');
+        })
+        .catch(error => {
+            alert('Erreur : ' + error.message);
+            console.error('PDF generation error:', error);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        });
     });
 
+    // =========================================================================
     // Modale de suppression : injecter les données de l'équipement cliqué
+    // =========================================================================
     const deleteModal = document.getElementById('deleteModal');
     if (deleteModal) {
         deleteModal.addEventListener('show.bs.modal', function(event) {

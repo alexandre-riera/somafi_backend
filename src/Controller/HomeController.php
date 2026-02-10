@@ -5,14 +5,16 @@ namespace App\Controller;
 use App\Entity\User;
 use App\Repository\AgencyRepository;
 use App\Service\Kizeo\KizeoClientService;
+use App\Service\Pdf\ClientReportGenerator;
 use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 
 /**
  * Controller principal de l'application
@@ -21,9 +23,10 @@ use Symfony\Component\HttpFoundation\ResponseHeaderBag;
  * - Page d'accueil / sélection agence
  * - Liste des clients par agence (via Kizeo)
  * - Page équipements client (avec pagination)
+ * - Génération PDF Compte Rendu Client
  * 
  * @author Alex - SOMAFI GROUP
- * @version 2.1 - Session 07/02/2026
+ * @version 2.2 - Session 10/02/2026
  */
 #[IsGranted('ROLE_USER')]
 class HomeController extends AbstractController
@@ -227,6 +230,145 @@ class HomeController extends AbstractController
         ]);
     }
 
+    // =========================================================================
+    // GÉNÉRATION PDF COMPTE RENDU CLIENT
+    // =========================================================================
+
+    /**
+     * Génère le PDF Compte Rendu Client
+     * 
+     * Appelé en AJAX depuis le bouton "Générer PDF complet" de la page équipements.
+     * Charge les données client depuis GESTAN (contact_sXX) pour avoir les adresses complètes.
+     * Retourne le PDF en téléchargement ou un JSON d'erreur.
+     */
+    #[Route(
+        '/agency/{agencyCode}/client/{idContact}/generate-pdf',
+        name: 'app_generate_client_pdf',
+        requirements: ['agencyCode' => 'S\d+', 'idContact' => '\d+'],
+        methods: ['POST']
+    )]
+    public function generateClientPdf(
+        Request $request,
+        string $agencyCode,
+        int $idContact,
+        ClientReportGenerator $clientReportGenerator
+    ): Response {
+        /** @var User $user */
+        $user = $this->getUser();
+
+        // Vérifier l'accès à l'agence
+        if ($user && !$user->hasAccessToAgency($agencyCode)) {
+            return new JsonResponse([
+                'success' => false,
+                'error' => 'Accès non autorisé à cette agence.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        // Récupérer les paramètres depuis le body (POST JSON ou form-data)
+        $annee = $request->request->get('annee', date('Y'));
+        $visite = $request->request->get('visite', 'CE1');
+        $includePhotos = $request->request->getBoolean('include_photos', true);
+
+        // Charger les données client depuis GESTAN (contact_sXX)
+        // Le template PDF a besoin de : raison_sociale, adressep_1, adressep_2, cpostalp, villep
+        $clientData = $this->loadClientDataForPdf($agencyCode, $idContact);
+
+        if (!$clientData) {
+            return new JsonResponse([
+                'success' => false,
+                'error' => 'Client non trouvé dans la base GESTAN.',
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        try {
+            // Générer le PDF
+            $pdfPath = $clientReportGenerator->generate(
+                $agencyCode,
+                $idContact,
+                $clientData,
+                $annee,
+                $visite,
+                $includePhotos
+            );
+
+            // Vérifier que le fichier a bien été créé
+            if (!file_exists($pdfPath)) {
+                return new JsonResponse([
+                    'success' => false,
+                    'error' => 'Erreur lors de la génération du PDF.',
+                ], Response::HTTP_INTERNAL_SERVER_ERROR);
+            }
+
+            // Retourner le PDF en téléchargement
+            $response = new BinaryFileResponse($pdfPath);
+            $response->headers->set('Content-Type', 'application/pdf');
+            $response->setContentDisposition(
+                ResponseHeaderBag::DISPOSITION_INLINE,
+                basename($pdfPath)
+            );
+
+            return $response;
+
+        } catch (\Throwable $e) {
+            return new JsonResponse([
+                'success' => false,
+                'error' => 'Erreur lors de la génération du PDF : ' . $e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Charge les données complètes du client depuis GESTAN (contact_sXX)
+     * pour le PDF CR client.
+     * 
+     * On enrichit aussi avec les données Kizeo (raison_sociale) au cas où 
+     * le contact GESTAN n'a pas toutes les infos.
+     * 
+     * @return array<string, mixed>|null
+     */
+    private function loadClientDataForPdf(string $agencyCode, int $idContact): ?array
+    {
+        $tableNumber = $this->extractTableNumber($agencyCode);
+        $tableName = 'contact_s' . $tableNumber;
+
+        try {
+            $sql = "SELECT id, id_contact, raison_sociale, adressep_1, adressep_2, 
+                           cpostalp, villep, telephone, email 
+                    FROM {$tableName}
+                    WHERE id_contact = :idContact
+                    LIMIT 1";
+
+            $clientData = $this->connection->fetchAssociative($sql, ['idContact' => $idContact]);
+
+            if ($clientData) {
+                return $clientData;
+            }
+        } catch (\Exception $e) {
+            // Fallback ci-dessous
+        }
+
+        // Fallback : essayer via Kizeo
+        $kizeoClient = $this->kizeoClientService->getClientByIdContact($agencyCode, $idContact);
+        if ($kizeoClient) {
+            return [
+                'id_contact' => $idContact,
+                'raison_sociale' => $kizeoClient['raison_sociale'] ?? 'Client #' . $idContact,
+                'adressep_1' => $kizeoClient['adresse'] ?? '',
+                'adressep_2' => '',
+                'cpostalp' => $kizeoClient['code_postal'] ?? '',
+                'villep' => $kizeoClient['ville'] ?? '',
+                'telephone' => $kizeoClient['telephone'] ?? '',
+                'email' => $kizeoClient['email'] ?? '',
+            ];
+        }
+
+        return null;
+    }
+
+    // =========================================================================
+    // TÉLÉCHARGEMENT CR TECHNICIEN
+    // =========================================================================
+
     /**
      * Téléchargement sécurisé d'un CR technicien (PDF)
      * 
@@ -287,6 +429,7 @@ class HomeController extends AbstractController
 
         return $response;
     }
+
 
     // =========================================================================
     // MÉTHODES PRIVÉES - Accès BDD

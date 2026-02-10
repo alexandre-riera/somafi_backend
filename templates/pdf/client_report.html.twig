@@ -2,316 +2,572 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Compte-Rendu {{ client.raison_sociale|default('Client') }} - {{ visite }} {{ annee }}</title>
+    <title>CR {{ client.raison_sociale|default('Client') }} - {{ visite }} {{ annee }}</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        /* ============================================
+         * SOMAFI - PDF Compte Rendu Client
+         * Compatible DomPDF (tables only, no flexbox)
+         * Header/Footer = images par agence (chemins absolus)
+         * Logos statut = images PNG (chemins absolus)
+         * Mapping statuts : Margaux V5
+         * Layout : 4 équipements par page (compact)
+         * SESSION 10/02/2026 soir
+         * ============================================ */
+
+        @page {
+            margin-top: 35mm;
+            margin-bottom: 30mm;
+            margin-left: 15mm;
+            margin-right: 15mm;
         }
-        
+
+        {# * { margin: 0; padding: 0; box-sizing: border-box; } #}
+
         body {
-            font-family: Arial, sans-serif;
-            font-size: 10pt;
-            line-height: 1.4;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12pt;
+            line-height: 1.3;
             color: #333;
         }
-        
-        .page {
-            page-break-after: always;
-            padding: 20mm 15mm;
-        }
-        
-        .page:last-child {
-            page-break-after: avoid;
-        }
-        
-        /* En-tête */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 2px solid #1a5276;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .logo {
-            font-size: 18pt;
-            font-weight: bold;
-            color: #1a5276;
-        }
-        
-        .report-title {
-            text-align: right;
-        }
-        
-        .report-title h1 {
-            font-size: 14pt;
-            color: #1a5276;
-        }
-        
-        .report-title p {
-            font-size: 9pt;
-            color: #666;
-        }
-        
-        /* Info client */
-        .client-info {
-            background-color: #f5f5f5;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-left: 4px solid #1a5276;
-        }
-        
-        .client-info h2 {
-            font-size: 14pt;
-            margin-bottom: 10px;
-        }
-        
-        .client-info p {
-            margin: 3px 0;
-        }
-        
-        /* Statistiques */
-        .stats {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 20px;
-        }
-        
-        .stat-box {
+
+        /* ============================================
+         * EN-TÊTE / PIED DE PAGE
+         * Gérés via DomPDF canvas (script PHP inline)
+         * position:fixed ne fonctionne pas pour les
+         * images dans les marges DomPDF
+         * ============================================ */
+
+        /* ============================================
+         * PAGE DE GARDE
+         * ============================================ */
+        .cover-title {
             text-align: center;
-            padding: 10px 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            min-width: 100px;
-        }
-        
-        .stat-box .number {
-            font-size: 24pt;
+            font-size: 20pt;
             font-weight: bold;
+            color: #000;
+            margin-top: 25px;
+            margin-bottom: 20px;
         }
-        
-        .stat-box .label {
+
+        .cover-info {
+            font-size: 10pt;
+            margin-bottom: 4px;
+        }
+
+        .client-block {
+            margin-top: 20px;
+            margin-bottom: 15px;
+        }
+
+        .client-name {
+            font-size: 13pt;
+            font-weight: bold;
+            color: #000;
+            margin-bottom: 4px;
+        }
+
+        .client-address {
+            font-size: 10pt;
+            color: #333;
+            line-height: 1.4;
+        }
+
+        .resume-block {
+            margin-top: 20px;
+            margin-bottom: 8px;
+        }
+
+        .resume-title {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #000;
+            margin-bottom: 6px;
+        }
+
+        .resume-count-bar {
+            border-left: 4px solid #28a745;
+            padding: 6px 12px;
+            margin-bottom: 15px;
+            background-color: #f9f9f9;
+        }
+
+        .resume-count-label {
             font-size: 8pt;
             color: #666;
         }
-        
-        .stat-box.green { border-color: #28a745; }
-        .stat-box.green .number { color: #28a745; }
-        
-        .stat-box.orange { border-color: #fd7e14; }
-        .stat-box.orange .number { color: #fd7e14; }
-        
-        .stat-box.red { border-color: #dc3545; }
-        .stat-box.red .number { color: #dc3545; }
-        
-        /* Tableau */
-        .section-title {
-            font-size: 12pt;
-            color: #1a5276;
-            margin: 20px 0 10px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #1a5276;
+
+        .resume-count-value {
+            font-size: 16pt;
+            font-weight: bold;
+            color: #28a745;
         }
-        
-        table {
+
+        /* ============================================
+         * TABLEAU RÉCAPITULATIF STATUTS
+         * ============================================ */
+        .section-header {
+            background-color: #666;
+            color: #ffffff;
+            font-size: 9pt;
+            font-weight: bold;
+            padding: 6px 10px;
+            margin-bottom: 0;
+            letter-spacing: 0.5px;
+        }
+
+        .status-table {
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 15px;
+        }
+
+        .status-table thead th {
+            background-color: #D4A817;
+            color: #000;
+            font-weight: bold;
+            font-size: 8pt;
+            padding: 5px 10px;
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+
+        .status-table thead th:first-child { width: 12%; }
+        .status-table thead th:nth-child(2) { width: 68%; text-align: left; }
+        .status-table thead th:last-child { width: 20%; }
+
+        .status-table tbody td {
+            padding: 5px 10px;
+            border-bottom: 1px solid #e0e0e0;
+            text-align: center;
             font-size: 8pt;
         }
-        
-        th {
-            background-color: #1a5276;
-            color: white;
-            padding: 8px 5px;
-            text-align: left;
-            font-weight: normal;
-        }
-        
-        td {
-            padding: 6px 5px;
-            border-bottom: 1px solid #ddd;
-            vertical-align: top;
-        }
-        
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        
-        /* Pastilles statut */
-        .status-badge {
-            display: inline-block;
+
+        .status-table tbody td:nth-child(2) { text-align: left; }
+
+        .status-logo {
             width: 20px;
             height: 20px;
-            border-radius: 50%;
-            text-align: center;
-            line-height: 20px;
-            color: white;
-            font-weight: bold;
+            vertical-align: middle;
+        }
+
+        /* ============================================
+         * FICHES ÉQUIPEMENTS — COMPACT (4 par page)
+         * ============================================ */
+        .equipment-page {
+            page-break-before: always;
+        }
+
+        .equip-card {
+            border: 1px solid #999;
+            margin-bottom: 20px;
+            page-break-inside: avoid;
+        }
+
+        .equip-card table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .equip-header-row td {
+            background-color: #333;
+            color: #ffffff;
+            padding: 4px 8px;
             font-size: 10pt;
+            font-weight: bold;
         }
-        
-        .status-a { background-color: #28a745; }
-        .status-b { background-color: #fd7e14; }
-        .status-c { background-color: #dc3545; }
-        .status-d, .status-e, .status-f, .status-g { background-color: #343a40; }
-        
-        /* Anomalies */
-        .anomalies {
-            color: #dc3545;
-            font-size: 7pt;
+
+        .equip-status-logo {
+            width: 18px;
+            height: 18px;
+            vertical-align: middle;
         }
-        
-        /* Photo équipement */
-        .equipment-photo {
-            max-width: 80px;
-            max-height: 60px;
-        }
-        
-        /* Pied de page */
-        .footer {
-            position: fixed;
-            bottom: 10mm;
-            left: 15mm;
-            right: 15mm;
-            font-size: 7pt;
-            color: #666;
+
+        /* Zone photo — compacte */
+        .equip-photo-cell {
+            width: 30%;
+            padding: 6px;
+            vertical-align: center;
             text-align: center;
-            border-top: 1px solid #ddd;
-            padding-top: 5px;
+            border-right: 1px solid #ddd;
         }
-        
-        .page-number:after {
-            content: counter(page);
+
+        .equip-photo {
+            max-width: 100%;
+            max-height: 150px;
         }
+
+        .no-photo {
+            color: #999;
+            font-style: italic;
+            font-size: 7pt;
+            padding: 25px 5px;
+        }
+
+        /* Zone informations — compacte */
+        .equip-info-cell {
+            width: 70%;
+            padding: 0;
+            vertical-align: top;
+        }
+
+        .equip-info-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .equip-info-table td {
+            padding: 2px 8px;
+            border-bottom: 1px solid #eee;
+            font-size: 10pt;
+            vertical-align: top;
+        }
+
+        .equip-info-table td:first-child {
+            width: 38%;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .equip-info-table td:last-child {
+            width: 62%;
+            color: #555;
+        }
+
+        .anomalies-text {
+            color: #dc3545;
+            font-weight: bold;
+            font-size: 7.5pt;
+        }
+
+        /* ============================================
+         * UTILITAIRES
+         * ============================================ */
+        .page-break { page-break-after: always; }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .mt-10 { margin-top: 10px; }
+        .mt-20 { margin-top: 20px; }
+        .mb-10 { margin-bottom: 10px; }
     </style>
 </head>
 <body>
-    <div class="page">
-        <!-- En-tête -->
-        <div class="header">
-            <div class="logo">SOMAFI GROUP</div>
-            <div class="report-title">
-                <h1>COMPTE-RENDU D'ENTRETIEN</h1>
-                <p>Visite {{ visite }} - Année {{ annee }}</p>
-                <p>Généré le {{ generated_at|date('d/m/Y à H:i') }}</p>
-            </div>
+
+    {# ============================================
+     # EN-TÊTE / PIED DE PAGE
+     # Gérés via DomPDF canvas PHP (voir script en bas)
+     # Les images sont injectées directement sur le PDF
+     # sur CHAQUE page, dans les marges @page
+     # ============================================ #}
+
+    {# ============================================
+     # PAGE 1 : PAGE DE GARDE
+     # ============================================ #}
+
+    <h1 class="cover-title">COMPTE RENDU D'ENTRETIEN</h1>
+
+    <p class="cover-info"><strong>Visite :</strong> {{ visite }} - {{ annee }}</p>
+    <p class="cover-info"><strong>Date de visite :</strong> {{ date_visite is not null ? date_visite|date('d/m/Y') : 'Non renseignée' }}</p>
+
+    <div class="client-block">
+        <div class="client-name">{{ client.raison_sociale|default('Client') }}</div>
+        <div class="client-address">
+            {{ client.adressep_1|default(client.adresse|default('')) }}<br>
+            {% if client.adressep_2 is defined and client.adressep_2 %}
+                {{ client.adressep_2 }}<br>
+            {% endif %}
+            {{ client.cpostalp|default(client.code_postal|default('')) }} {{ client.villep|default(client.ville|default('')) }}
         </div>
-        
-        <!-- Info client -->
-        <div class="client-info">
-            <h2>{{ client.raison_sociale|default('Client') }}</h2>
-            <p><strong>Adresse :</strong> {{ client.adresse|default('') }}</p>
-            <p><strong>CP / Ville :</strong> {{ client.code_postal|default('') }} {{ client.ville|default('') }}</p>
-            <p><strong>Agence :</strong> {{ agency_code }}</p>
+    </div>
+
+    {# --- Résumé nombre d'équipements au contrat --- #}
+    <div class="resume-block">
+        <div class="resume-title">RÉSUMÉ</div>
+        <div class="resume-count-bar">
+            <div class="resume-count-label">Nombre d'équipements au contrat</div>
+            <div class="resume-count-value">{{ total_contract }}</div>
         </div>
-        
-        <!-- Statistiques -->
-        <div class="stats">
-            <div class="stat-box green">
-                <div class="number">{{ status_counts['A']|default(0) }}</div>
-                <div class="label">Bon état (A)</div>
-            </div>
-            <div class="stat-box orange">
-                <div class="number">{{ status_counts['B']|default(0) }}</div>
-                <div class="label">Préventifs (B)</div>
-            </div>
-            <div class="stat-box red">
-                <div class="number">{{ status_counts['C']|default(0) }}</div>
-                <div class="label">Curatifs (C)</div>
-            </div>
-            <div class="stat-box">
-                <div class="number">{{ total_contract }}</div>
-                <div class="label">Au contrat</div>
-            </div>
-            <div class="stat-box">
-                <div class="number">{{ total_offcontract }}</div>
-                <div class="label">Hors contrat</div>
-            </div>
-        </div>
-        
-        <!-- Équipements au contrat -->
-        <h3 class="section-title">Équipements au contrat ({{ total_contract }})</h3>
-        
-        {% if contract_equipments|length > 0 %}
-        <table>
+    </div>
+
+    {# ============================================
+     # TABLEAU RÉCAP — ÉQUIPEMENTS SOUS CONTRAT
+     # ============================================ #}
+    <div class="section-header">ÉQUIPEMENTS VISITÉS</div>
+    <table class="status-table">
+        <thead>
+            <tr>
+                <th>STATUT</th>
+                <th>ÉTAT</th>
+                <th>TOTAL</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{% if status_logos.vert %}<img class="status-logo" src="{{ status_logos.vert }}" alt="A">{% else %}A{% endif %}</td>
+                <td>Bon état</td>
+                <td>{{ contract_status_counts.bon_etat|default(0) }}</td>
+            </tr>
+            <tr>
+                <td>{% if status_logos.orange %}<img class="status-logo" src="{{ status_logos.orange }}" alt="B">{% else %}B{% endif %}</td>
+                <td>Travaux préventifs</td>
+                <td>{{ contract_status_counts.travaux_preventifs|default(0) }}</td>
+            </tr>
+            <tr>
+                <td>{% if status_logos.rouge %}<img class="status-logo" src="{{ status_logos.rouge }}" alt="C">{% else %}C{% endif %}</td>
+                <td>Travaux curatifs</td>
+                <td>{{ contract_status_counts.travaux_curatifs|default(0) }}</td>
+            </tr>
+            <tr>
+                <td>{% if status_logos.inaccessible %}<img class="status-logo" src="{{ status_logos.inaccessible }}" alt="D">{% else %}D{% endif %}</td>
+                <td>Inaccessible</td>
+                <td>{{ contract_status_counts.inaccessible|default(0) }}</td>
+            </tr>
+            <tr>
+                <td>{% if status_logos.arret %}<img class="status-logo" src="{{ status_logos.arret }}" alt="E">{% else %}E{% endif %}</td>
+                <td>Équipement à l'arrêt</td>
+                <td>{{ contract_status_counts.a_l_arret|default(0) }}</td>
+            </tr>
+            <tr>
+                <td>{% if status_logos.arret %}<img class="status-logo" src="{{ status_logos.arret }}" alt="F">{% else %}F{% endif %}</td>
+                <td>Mis à l'arrêt</td>
+                <td>{{ contract_status_counts.mis_a_l_arret|default(0) }}</td>
+            </tr>
+            <tr>
+                <td>{% if status_logos.noir %}<img class="status-logo" src="{{ status_logos.noir }}" alt="G">{% else %}G{% endif %}</td>
+                <td>Non présent sur site</td>
+                <td>{{ contract_status_counts.non_present|default(0) }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    {# ============================================
+     # TABLEAU RÉCAP — ÉQUIPEMENTS HORS CONTRAT
+     # ============================================ #}
+    {% if total_offcontract > 0 %}
+        <div class="section-header">ÉQUIPEMENTS SUPPLÉMENTAIRES</div>
+        <table class="status-table">
             <thead>
                 <tr>
-                    <th style="width: 8%">N°</th>
-                    <th style="width: 20%">Libellé</th>
-                    <th style="width: 10%">Marque</th>
-                    <th style="width: 12%">Repère</th>
-                    <th style="width: 10%">Date visite</th>
-                    <th style="width: 5%">État</th>
-                    <th style="width: 35%">Anomalies</th>
+                    <th>STATUT</th>
+                    <th>ÉTAT</th>
+                    <th>TOTAL</th>
                 </tr>
             </thead>
             <tbody>
-                {% for equip in contract_equipments %}
                 <tr>
-                    <td>{{ equip.numeroEquipement }}</td>
-                    <td>{{ equip.libelleEquipement }}</td>
-                    <td>{{ equip.marque }}</td>
-                    <td>{{ equip.repereSiteClient }}</td>
-                    <td>{{ equip.dateDerniereVisite ? equip.dateDerniereVisite|date('d/m/Y') : '-' }}</td>
-                    <td>
-                        <span class="status-badge status-{{ equip.statutEquipement|lower }}">
-                            {{ equip.statutEquipement }}
-                        </span>
-                    </td>
-                    <td class="anomalies">{{ equip.anomalies }}</td>
+                    <td>{% if status_logos.vert %}<img class="status-logo" src="{{ status_logos.vert }}" alt="A">{% else %}A{% endif %}</td>
+                    <td>Bon état</td>
+                    <td>{{ offcontract_status_counts.bon_etat|default(0) }}</td>
                 </tr>
-                {% endfor %}
+                <tr>
+                    <td>{% if status_logos.orange %}<img class="status-logo" src="{{ status_logos.orange }}" alt="B">{% else %}B{% endif %}</td>
+                    <td>Travaux préventifs</td>
+                    <td>{{ offcontract_status_counts.travaux_preventifs|default(0) }}</td>
+                </tr>
+                <tr>
+                    <td>{% if status_logos.rouge %}<img class="status-logo" src="{{ status_logos.rouge }}" alt="C">{% else %}C{% endif %}</td>
+                    <td>Travaux curatifs</td>
+                    <td>{{ offcontract_status_counts.travaux_curatifs|default(0) }}</td>
+                </tr>
+                <tr>
+                    <td>{% if status_logos.arret %}<img class="status-logo" src="{{ status_logos.arret }}" alt="D">{% else %}D{% endif %}</td>
+                    <td>Équipement à l'arrêt</td>
+                    <td>{{ offcontract_status_counts.a_l_arret|default(0) }}</td>
+                </tr>
+                <tr>
+                    <td>{% if status_logos.arret %}<img class="status-logo" src="{{ status_logos.arret }}" alt="E">{% else %}E{% endif %}</td>
+                    <td>Mis à l'arrêt</td>
+                    <td>{{ offcontract_status_counts.mis_a_l_arret|default(0) }}</td>
+                </tr>
             </tbody>
         </table>
+    {% endif %}
+
+    {# ============================================
+     # PAGES ÉQUIPEMENTS — 4 PAR PAGE (compact)
+     # Contrat puis Hors Contrat
+     # ============================================ #}
+    {% set all_equipments = contract_equipments|merge(offcontract_equipments) %}
+
+    {% for equip in all_equipments %}
+        {# Saut de page : avant le 1er équipement, puis tous les 4 #}
+        {% if loop.first or (loop.index0 % 4 == 0) %}
+            {% if not loop.first %}
+                </div>
+            {% endif %}
+            <div class="equipment-page">
+        {% endif %}
+
+        {# --- Déterminer les infos d'affichage --- #}
+        {% set numero = equip.numero_equipement|default('') %}
+        {% set libelle = equip.libelle_equipement|default('') %}
+        {% set statut = equip.statut_equipement|default('') %}
+        {% set marque_val = equip.marque|default('nc') %}
+        {% set mise_service = equip.mise_en_service|default('nc') %}
+        {% set repere = equip.repere_site_client|default('') %}
+        {% set anomalies_val = equip.anomalies|default('') %}
+        {% set is_hc = equip.is_hors_contrat|default(false) %}
+
+        {# =============================================
+         # Mapping statut → logo + label
+         # DIFFÉRENT selon contrat / hors contrat
+         # ============================================= #}
+        {% if not is_hc %}
+            {# --- SOUS CONTRAT (A→G) --- #}
+            {% if statut|upper == 'A' %}
+                {% set status_logo_src = status_logos.vert %}
+                {% set etat_label = 'Bon état' %}
+            {% elseif statut|upper == 'B' %}
+                {% set status_logo_src = status_logos.orange %}
+                {% set etat_label = 'Travaux préventifs' %}
+            {% elseif statut|upper == 'C' %}
+                {% set status_logo_src = status_logos.rouge %}
+                {% set etat_label = 'Travaux curatifs' %}
+            {% elseif statut|upper == 'D' %}
+                {% set status_logo_src = status_logos.inaccessible %}
+                {% set etat_label = 'Inaccessible' %}
+            {% elseif statut|upper == 'E' %}
+                {% set status_logo_src = status_logos.arret %}
+                {% set etat_label = 'Équipement à l\'arrêt' %}
+            {% elseif statut|upper == 'F' %}
+                {% set status_logo_src = status_logos.arret %}
+                {% set etat_label = 'Mis à l\'arrêt' %}
+            {% elseif statut|upper == 'G' %}
+                {% set status_logo_src = status_logos.noir %}
+                {% set etat_label = 'Non présent sur site' %}
+            {% else %}
+                {% set status_logo_src = status_logos.noir %}
+                {% set etat_label = statut|default('Non renseigné') %}
+            {% endif %}
         {% else %}
-        <p><em>Aucun équipement au contrat pour cette visite.</em></p>
+            {# --- HORS CONTRAT (A→E) --- #}
+            {% if statut|upper == 'A' %}
+                {% set status_logo_src = status_logos.vert %}
+                {% set etat_label = 'Bon état' %}
+            {% elseif statut|upper == 'B' %}
+                {% set status_logo_src = status_logos.orange %}
+                {% set etat_label = 'Travaux préventifs' %}
+            {% elseif statut|upper == 'C' %}
+                {% set status_logo_src = status_logos.rouge %}
+                {% set etat_label = 'Travaux curatifs' %}
+            {% elseif statut|upper == 'D' %}
+                {% set status_logo_src = status_logos.arret %}
+                {% set etat_label = 'Équipement à l\'arrêt' %}
+            {% elseif statut|upper == 'E' %}
+                {% set status_logo_src = status_logos.arret %}
+                {% set etat_label = 'Mis à l\'arrêt' %}
+            {% else %}
+                {% set status_logo_src = status_logos.noir %}
+                {% set etat_label = statut|default('Non renseigné') %}
+            {% endif %}
         {% endif %}
-        
-        <!-- Équipements hors contrat -->
-        {% if total_offcontract > 0 %}
-        <h3 class="section-title">Équipements hors contrat ({{ total_offcontract }})</h3>
-        
-        <table>
-            <thead>
+
+        {# Résolution photo #}
+        {% set photo_path = photos[numero]|default(null) %}
+
+        {# --- FICHE ÉQUIPEMENT (compact) --- #}
+        <div class="equip-card">
+            <table>
+                {# En-tête : nom + logo statut #}
                 <tr>
-                    <th style="width: 8%">N°</th>
-                    <th style="width: 20%">Libellé</th>
-                    <th style="width: 10%">Marque</th>
-                    <th style="width: 12%">Repère</th>
-                    <th style="width: 10%">Date visite</th>
-                    <th style="width: 5%">État</th>
-                    <th style="width: 35%">Anomalies</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for equip in offcontract_equipments %}
-                <tr>
-                    <td>{{ equip.numeroEquipement }}</td>
-                    <td>{{ equip.libelleEquipement }}</td>
-                    <td>{{ equip.marque }}</td>
-                    <td>{{ equip.repereSiteClient }}</td>
-                    <td>{{ equip.dateDerniereVisite ? equip.dateDerniereVisite|date('d/m/Y') : '-' }}</td>
-                    <td>
-                        <span class="status-badge status-{{ equip.statutEquipement|lower }}">
-                            {{ equip.statutEquipement }}
-                        </span>
+                    <td colspan="2" style="padding:0;">
+                        <table style="width:100%; border-collapse:collapse;">
+                            <tr>
+                                <td style="background:#333; color:#fff; padding:4px 8px; font-size:9pt; font-weight:bold;">
+                                    Équipement {{ numero }}{% if libelle %} - {{ libelle }}{% endif %}
+                                    {% if is_hc %} <span style="font-size:7pt; color:#FFD700;">(HC)</span>{% endif %}
+                                </td>
+                                <td style="background:#333; width:30px; text-align:right; padding-right:8px;">
+                                    {% if status_logo_src %}
+                                        <img class="equip-status-logo" src="{{ status_logo_src }}" alt="{{ etat_label }}">
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
                     </td>
-                    <td class="anomalies">{{ equip.anomalies }}</td>
                 </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                {# Corps : photo + infos #}
+                <tr>
+                    <td class="equip-photo-cell">
+                        {% if include_photos and photo_path %}
+                            <img class="equip-photo" src="{{ photo_path }}" alt="Photo {{ numero }}">
+                        {% else %}
+                            <div class="no-photo">
+                                <em>Aucune photo<br>disponible</em>
+                            </div>
+                        {% endif %}
+                    </td>
+                    <td class="equip-info-cell">
+                        <table class="equip-info-table">
+                            <tr>
+                                <td><strong>Numéro</strong></td>
+                                <td>{{ numero }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Type</strong></td>
+                                <td>{{ libelle|default('Non renseigné') }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Marque</strong></td>
+                                <td>{{ marque_val }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>État</strong></td>
+                                <td>{{ etat_label }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Mise en service</strong></td>
+                                <td>{{ mise_service }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Repère site client</strong></td>
+                                <td>{{ repere }}</td>
+                            </tr>
+                            {% if anomalies_val is not empty %}
+                                <tr>
+                                    <td><strong>Anomalies</strong></td>
+                                    <td><span class="anomalies-text">{{ anomalies_val }}</span></td>
+                                </tr>
+                            {% endif %}
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        {# Fermer le div page au dernier équipement #}
+        {% if loop.last %}
+            </div>
         {% endif %}
-    </div>
-    
-    <!-- Pied de page -->
-    <div class="footer">
-        SOMAFI GROUP - Compte-rendu d'entretien {{ visite }} {{ annee }} - {{ client.raison_sociale|default('Client') }}
-        <span style="float: right;">Page <span class="page-number"></span></span>
-    </div>
+    {% endfor %}
+
+    {# ============================================
+     # SCRIPT CANVAS DomPDF
+     # Injecte header/footer images sur CHAQUE page
+     # via l'API canvas native (contourne le bug
+     # position:fixed + images dans les marges)
+     #
+     # isPhpEnabled doit être true dans DomPDF options
+     # Les chemins sont normalisés en forward slashes
+     # par le service PHP (pas d'escaping Windows)
+     # ============================================ #}
+    <script type="text/php">
+    if (isset($pdf)) {
+        $pdf->page_script('
+            $w = $pdf->get_width();
+            $h = $pdf->get_height();
+
+            $header = "{{ header_image|default('')|raw }}";
+            if ($header !== "" && file_exists($header)) {
+                $pdf->image($header, 0, 0, $w, 68);
+            }
+
+            $footer = "{{ footer_image|default('')|raw }}";
+            if ($footer !== "" && file_exists($footer)) {
+                $pdf->image($footer, 0, $h - 62, $w, 62);
+            }
+        ');
+    }
+    </script>
+
 </body>
 </html>

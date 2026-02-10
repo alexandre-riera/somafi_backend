@@ -91,3 +91,4 @@ services:
     App\Service\Pdf\ClientReportGenerator:
         arguments:
             $storagePath: '%storage.path%'
+            $projectDir: '%kernel.project_dir%'
