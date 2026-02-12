@@ -292,6 +292,7 @@
         font-size: 0.875rem;
     }
 
+    /* Section fichiers */
     .files-section {
         background: white;
         border-radius: 8px;
@@ -311,10 +312,10 @@
         padding: 0.75rem;
         background: #f8f9fa;
         border-radius: 4px;
-        margin-bottom: 0.5rem;
         text-decoration: none;
         color: inherit;
         transition: all 0.2s;
+        flex: 1;
     }
 
     .file-item:hover {
@@ -331,8 +332,81 @@
         font-weight: 500;
     }
 
+    .file-size {
+        color: #999;
+        font-size: 0.8rem;
+        margin-right: 0.5rem;
+    }
+
     .download-icon {
         color: #666;
+    }
+
+    .file-item-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    /* Upload form */
+    .upload-form {
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background: #f0f7ff;
+        border: 2px dashed var(--cc-primary);
+        border-radius: 8px;
+    }
+
+    .upload-zone {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .upload-label {
+        font-weight: 500;
+        color: var(--cc-primary);
+    }
+
+    .upload-zone input[type="file"] {
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .btn-upload {
+        padding: 0.5rem 1.25rem;
+        background: var(--cc-primary);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background 0.2s;
+    }
+
+    .btn-upload:hover {
+        background: var(--cc-primary-dark);
+    }
+
+    .delete-form {
+        margin: 0;
+    }
+
+    .btn-delete {
+        background: none;
+        border: 1px solid #dc3545;
+        color: #dc3545;
+        border-radius: 4px;
+        padding: 0.5rem 0.65rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-delete:hover {
+        background: #dc3545;
+        color: white;
     }
 
     .no-equipments, .no-files {
@@ -353,6 +427,27 @@
 
     .back-link:hover {
         text-decoration: underline;
+    }
+
+    /* Flash messages */
+    .flash-messages {
+        margin-bottom: 1rem;
+    }
+
+    .flash-success {
+        padding: 0.75rem 1rem;
+        background: #d1e7dd;
+        color: #0f5132;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
+    }
+
+    .flash-error {
+        padding: 0.75rem 1rem;
+        background: #f8d7da;
+        color: #842029;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
     }
 
     @media (max-width: 768px) {
@@ -379,6 +474,11 @@
             flex-direction: column;
             align-items: center;
         }
+
+        .upload-zone {
+            flex-direction: column;
+            align-items: stretch;
+        }
     }
 </style>
 {% endblock %}
@@ -395,6 +495,16 @@
 </div>
 
 <div class="container">
+
+    {# Flash messages #}
+    {% for type in ['success', 'error'] %}
+        {% for message in app.flashes(type) %}
+            <div class="flash-messages">
+                <div class="flash-{{ type }}">{{ message }}</div>
+            </div>
+        {% endfor %}
+    {% endfor %}
+
     {# Informations du site #}
     <div class="site-info-card">
         <h2>Informations du site</h2>
@@ -653,16 +763,59 @@
         </div>
     {% endif %}
 
-    {# Fichiers disponibles #}
+    {# ================================================================ #}
+    {#  SECTION DOCUMENTS — Upload (admin) + Liste + Download/Delete    #}
+    {# ================================================================ #}
     <div class="files-section">
         <h3>📄 Documents disponibles</h3>
+
+        {# ---- Formulaire d'upload (admin CC uniquement) ---- #}
+        {% if is_user_cc_admin is defined and is_user_cc_admin %}
+            <form method="POST" 
+                  action="{{ path('app_contrat_cadre_upload', {slug: contrat_cadre.slug, agencyCode: agency_code, idContact: id_contact}) }}" 
+                  enctype="multipart/form-data"
+                  class="upload-form">
+                <input type="hidden" name="_token" value="{{ csrf_token('cc_upload') }}">
+                <div class="upload-zone">
+                    <label for="cc_file" class="upload-label">
+                        <i class="bi bi-cloud-arrow-up"></i>
+                        Uploader un document PDF
+                    </label>
+                    <input type="file" name="file" id="cc_file" accept=".pdf,application/pdf" required>
+                    <button type="submit" class="btn-upload">
+                        <i class="bi bi-upload"></i> Envoyer
+                    </button>
+                </div>
+            </form>
+        {% endif %}
+
+        {# ---- Liste des fichiers ---- #}
         {% if files|length > 0 %}
             {% for file in files %}
-                <a href="{{ asset('uploads/cc/' ~ file.path) }}" class="file-item" target="_blank" download>
-                    <i class="bi bi-file-pdf"></i>
-                    <span class="file-name">{{ file.name }}</span>
-                    <span class="download-icon">↓</span>
-                </a>
+                <div class="file-item-row">
+                    <a href="{{ path('app_contrat_cadre_download', {slug: contrat_cadre.slug, fileId: file.id}) }}" 
+                       class="file-item" target="_blank">
+                        <i class="bi bi-file-pdf"></i>
+                        <span class="file-name">{{ file.name }}</span>
+                        {% if file.file_size is defined and file.file_size %}
+                            <span class="file-size">{{ (file.file_size / 1024)|round(0) }} Ko</span>
+                        {% endif %}
+                        <span class="download-icon">↓</span>
+                    </a>
+
+                    {# Bouton supprimer (admin CC uniquement) #}
+                    {% if is_user_cc_admin is defined and is_user_cc_admin %}
+                        <form method="POST" 
+                              action="{{ path('app_contrat_cadre_delete_file', {slug: contrat_cadre.slug, fileId: file.id}) }}"
+                              class="delete-form"
+                              onsubmit="return confirm('Supprimer ce fichier ?')">
+                            <input type="hidden" name="_token" value="{{ csrf_token('delete_cc_file') }}">
+                            <button type="submit" class="btn-delete" title="Supprimer">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
             {% endfor %}
         {% else %}
             <div class="no-files">
