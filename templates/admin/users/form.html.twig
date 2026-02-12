@@ -291,13 +291,16 @@
 {% block javascripts %}
 {{ parent() }}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const roleInputs = document.querySelectorAll('.role-input');
-    const ccSection = document.getElementById('ccSection');
-    const ccHint = document.getElementById('ccHint');
+document.addEventListener('turbo:load', function() {
     const selectAllBtn = document.getElementById('selectAllAgencies');
     const deselectAllBtn = document.getElementById('deselectAllAgencies');
     const agencyCheckboxes = document.querySelectorAll('input[name="agencies[]"]');
+    const roleInputs = document.querySelectorAll('.role-input');
+    const ccSection = document.getElementById('ccSection');
+    const ccHint = document.getElementById('ccHint');
+
+    // Pas sur cette page ? On sort
+    if (!selectAllBtn) return;
 
     // Toggle section Contrat Cadre selon les rôles cochés
     function updateCcVisibility() {

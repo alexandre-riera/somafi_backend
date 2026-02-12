@@ -21,14 +21,18 @@ class ContactsCC
     #[ORM\Column(length: 255)]
     private ?string $raison_sociale_contact = null;
 
+    #[ORM\Column(length: 255)]
+    private ?string $code_agence = null;
+
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(name: 'contrat_cadre_id', nullable: true)]
+    private ?ContratCadre $contratCadre = null;
+
     /**
      * @var Collection<int, FilesCC>
      */
     #[ORM\OneToMany(targetEntity: FilesCC::class, mappedBy: 'id_contact_cc')]
     private Collection $filesCCs;
-
-    #[ORM\Column(length: 255)]
-    private ?string $code_agence = null;
 
     public function __construct()
     {
@@ -48,7 +52,6 @@ class ContactsCC
     public function setIdContact(string $id_contact): static
     {
         $this->id_contact = $id_contact;
-
         return $this;
     }
 
@@ -60,7 +63,28 @@ class ContactsCC
     public function setRaisonSocialeContact(string $raison_sociale_contact): static
     {
         $this->raison_sociale_contact = $raison_sociale_contact;
+        return $this;
+    }
 
+    public function getCodeAgence(): ?string
+    {
+        return $this->code_agence;
+    }
+
+    public function setCodeAgence(string $code_agence): static
+    {
+        $this->code_agence = $code_agence;
+        return $this;
+    }
+
+    public function getContratCadre(): ?ContratCadre
+    {
+        return $this->contratCadre;
+    }
+
+    public function setContratCadre(?ContratCadre $contratCadre): static
+    {
+        $this->contratCadre = $contratCadre;
         return $this;
     }
 
@@ -78,31 +102,16 @@ class ContactsCC
             $this->filesCCs->add($filesCC);
             $filesCC->setIdContactCc($this);
         }
-
         return $this;
     }
 
     public function removeFilesCC(FilesCC $filesCC): static
     {
         if ($this->filesCCs->removeElement($filesCC)) {
-            // set the owning side to null (unless already changed)
             if ($filesCC->getIdContactCc() === $this) {
                 $filesCC->setIdContactCc(null);
             }
         }
-
-        return $this;
-    }
-
-    public function getCodeAgence(): ?string
-    {
-        return $this->code_agence;
-    }
-
-    public function setCodeAgence(string $code_agence): static
-    {
-        $this->code_agence = $code_agence;
-
         return $this;
     }
 }

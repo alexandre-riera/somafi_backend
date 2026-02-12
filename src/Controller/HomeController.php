@@ -62,8 +62,13 @@ class HomeController extends AbstractController
 
         // Utilisateur multi-agences -> choix de l'agence
         if ($user && $user->isMultiAgency()) {
+            $agencies = $this->agencyRepository->findBy([
+                'code' => $user->getAgencies(),
+                'isActive' => true,
+            ]);
+        
             return $this->render('home/select_agency.html.twig', [
-                'agencies' => $user->getAgencies(),
+                'agencies' => $agencies,
             ]);
         }
 

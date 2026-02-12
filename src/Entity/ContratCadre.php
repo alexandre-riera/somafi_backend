@@ -57,6 +57,12 @@ class ContratCadre
 
     #[ORM\Column(type: Types::DATETIME_MUTABLE)]
     private ?\DateTimeInterface $createdAt = null;
+    
+    /**
+    * Couleur de fond du portail (hex)
+    */
+    #[ORM\Column(length: 7, nullable: true)]
+    private ?string $backgroundColor = null;
 
     public function __construct()
     {
@@ -168,5 +174,16 @@ class ContratCadre
     public function __toString(): string
     {
         return $this->nom ?? '';
+    }
+    
+    public function getBackgroundColor(): ?string
+    {
+        return $this->backgroundColor;
+    }
+    
+    public function setBackgroundColor(?string $backgroundColor): static
+    {
+        $this->backgroundColor = $backgroundColor;
+        return $this;
     }
 }

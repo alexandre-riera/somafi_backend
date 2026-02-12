@@ -15,35 +15,18 @@ class Agency
     #[ORM\Column]
     private ?int $id = null;
 
-    /**
-     * Code agence : S10, S40, S50, etc.
-     */
     #[ORM\Column(length: 10, unique: true)]
     private ?string $code = null;
 
-    /**
-     * Nom complet de l'agence
-     */
     #[ORM\Column(length: 100)]
     private ?string $nom = null;
 
-    /**
-     * ID du formulaire Kizeo Forms pour cette agence
-     */
     #[ORM\Column(nullable: true)]
     private ?int $kizeoFormId = null;
 
-    /**
-     * ID de la liste Kizeo des CLIENTS de cette agence
-     * Format: "NOM|CP|VILLE|ID_CONTACT|CODE_AGENCE|ID_SOCIETE"
-     */
     #[ORM\Column(nullable: true)]
     private ?int $kizeoListClientsId = null;
 
-    /**
-     * ID de la liste Kizeo des ÉQUIPEMENTS de cette agence
-     * Format: "CLIENT\\VISITE\\NUM_EQUIP|LIBELLE|...|ID_CONTACT|ID_SOCIETE|CODE_AGENCE"
-     */
     #[ORM\Column(nullable: true)]
     private ?int $kizeoListEquipmentsId = null;
 
@@ -64,6 +47,14 @@ class Agency
 
     #[ORM\Column(length: 180, nullable: true)]
     private ?string $email = null;
+
+    #[ORM\Column(length: 50, nullable: true)]
+    private ?string $siren = null;
+
+    #[ORM\Column(length: 20, nullable: true)]
+    private ?string $ape = null;
+
+    // ===== GETTERS & SETTERS =====
 
     public function getId(): ?int
     {
@@ -191,37 +182,25 @@ class Agency
         return $this;
     }
 
-    /**
-     * Retourne l'adresse complète formatée
-     */
-    public function getFullAddress(): string
+    public function getSiren(): ?string
     {
-        $parts = array_filter([
-            $this->adresse,
-            trim(($this->codePostal ?? '') . ' ' . ($this->ville ?? '')),
-        ]);
-        
-        return implode(', ', $parts);
+        return $this->siren;
     }
 
-    /**
-     * Retourne le nom de la table équipement pour cette agence
-     */
-    public function getEquipmentTableName(): string
+    public function setSiren(?string $siren): static
     {
-        return 'equipement_' . strtolower($this->code);
+        $this->siren = $siren;
+        return $this;
     }
 
-    /**
-     * Retourne le nom de la classe entité équipement pour cette agence
-     */
-    public function getEquipmentEntityClass(): string
+    public function getApe(): ?string
     {
-        return 'App\\Entity\\Agency\\Equipement' . $this->code;
+        return $this->ape;
     }
 
-    public function __toString(): string
+    public function setApe(?string $ape): static
     {
-        return $this->code . ' - ' . $this->nom;
+        $this->ape = $ape;
+        return $this;
     }
 }

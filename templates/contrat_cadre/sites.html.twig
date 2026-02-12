@@ -9,6 +9,11 @@
         --cc-primary: {{ contrat_cadre.primaryColor ?? '#E30613' }};
         --cc-primary-dark: color-mix(in srgb, var(--cc-primary) 80%, black);
         --cc-primary-light: color-mix(in srgb, var(--cc-primary) 20%, white);
+        --cc-bg: {{ contrat_cadre.backgroundColor ?? '#f5f5f5' }};
+    }
+
+    body {
+        background-color: var(--cc-bg) !important;
     }
 
     .cc-header {
@@ -305,7 +310,7 @@
 {% block javascripts %}
 {{ parent() }}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('turbo:load', function() {
     const searchInput = document.getElementById('searchInput');
     const sitesGrid = document.getElementById('sitesGrid');
     const siteCards = document.querySelectorAll('.site-card');

@@ -155,7 +155,7 @@
 {% block javascripts %}
 {{ parent() }}
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('turbo:load', function() {
         const searchInput = document.getElementById('searchInput');
         const btnClear = document.getElementById('btnClearSearch');
         const searchInfo = document.getElementById('searchInfo');

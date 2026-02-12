@@ -12,17 +12,18 @@
                 </div>
                 <div class="card-body">
                     <div class="row g-3">
-                        {% for agencyCode in agencies %}
-                        <div class="col-md-4">
-                            <a href="{{ path('app_clients_list', {agencyCode: agencyCode}) }}" class="text-decoration-none">
-                                <div class="card h-100 border-primary">
-                                    <div class="card-body text-center">
-                                        <i class="bi bi-geo-alt-fill text-primary fs-1"></i>
-                                        <h5 class="mt-2">{{ agencyCode }}</h5>
+                        {% for agency in agencies %}
+                            <div class="col-md-4">
+                                <a href="{{ path('app_clients_list', {agencyCode: agency.code}) }}" class="text-decoration-none">
+                                    <div class="card h-100 border-primary">
+                                        <div class="card-body text-center">
+                                            <i class="bi bi-geo-alt-fill text-primary fs-1"></i>
+                                            <h5 class="mt-2">{{ agency.code }}</h5>
+                                            <p class="text-muted mb-0">{{ agency.nom }}</p>
+                                        </div>
                                     </div>
-                                </div>
-                            </a>
-                        </div>
+                                </a>
+                            </div>
                         {% endfor %}
                     </div>
                 </div>
