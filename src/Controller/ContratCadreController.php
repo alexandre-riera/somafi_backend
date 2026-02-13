@@ -356,4 +356,9 @@ class ContratCadreController extends AbstractController
             'idContact' => $idContact,
         ]);
     }
+
+    protected function getUser(): ?\App\Entity\User
+    {
+        return parent::getUser();
+    }
 }
