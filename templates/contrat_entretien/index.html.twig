@@ -1,0 +1,418 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Contrats Entretien {{ agencyCode }} - SOMAFI{% endblock %}
+
+{% block stylesheets %}
+<style>
+    .badge-actif { background-color: var(--somafi-success); }
+    .badge-resilie { background-color: var(--somafi-danger); }
+    .badge-suspendu { background-color: var(--somafi-warning); color: #333; }
+    .badge-en_attente { background-color: #6c757d; }
+    
+    .card-stat-contrat {
+        border-left: 4px solid var(--somafi-primary);
+        transition: transform 0.15s;
+    }
+    .card-stat-contrat:hover {
+        transform: translateY(-2px);
+    }
+    .card-stat-contrat .stat-number {
+        font-size: 1.8rem;
+        font-weight: 700;
+        line-height: 1;
+    }
+    .card-stat-contrat .stat-label {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+    
+    .table-contrats th {
+        background-color: var(--somafi-primary);
+        color: #fff;
+        font-weight: 500;
+        white-space: nowrap;
+        font-size: 0.875rem;
+    }
+    .table-contrats td {
+        vertical-align: middle;
+        font-size: 0.875rem;
+    }
+    .table-contrats tbody tr:hover {
+        background-color: rgba(26, 82, 118, 0.05);
+        cursor: pointer;
+    }
+    
+    .filter-bar {
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 1rem;
+    }
+    
+    .sort-link {
+        color: #fff;
+        text-decoration: none;
+    }
+    .sort-link:hover {
+        color: #ccc;
+    }
+    .sort-link .bi {
+        font-size: 0.7rem;
+    }
+    
+    .agency-selector .btn {
+        min-width: 65px;
+    }
+    .agency-selector .btn.active {
+        background-color: var(--somafi-primary);
+        color: #fff;
+        border-color: var(--somafi-primary);
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+
+    {# ================================================================== #}
+    {#  BREADCRUMB                                                        #}
+    {# ================================================================== #}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_home') }}">Accueil</a></li>
+            <li class="breadcrumb-item active">Contrats Entretien — {{ agencyCode }}{% if agency %} ({{ agency.nom }}){% endif %}</li>
+        </ol>
+    </nav>
+
+    {# ================================================================== #}
+    {#  HEADER + SÉLECTEUR AGENCE                                         #}
+    {# ================================================================== #}
+    <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="mb-1">
+                <i class="bi bi-file-earmark-text"></i> 
+                Contrats d'Entretien — {{ agencyCode }}
+            </h2>
+            {% if agency %}
+                <p class="text-muted mb-0">{{ agency.nom }}</p>
+            {% endif %}
+        </div>
+        
+        {# Bouton créer (si autorisé) #}
+        {% if is_granted('CONTRAT_CREATE', agencyCode) %}
+            <a href="{{ path('app_contrat_entretien_create', {agencyCode: agencyCode}) }}" 
+               class="btn btn-somafi">
+                <i class="bi bi-plus-lg"></i> Nouveau contrat
+            </a>
+        {% endif %}
+        {% if is_granted('CONTRAT_CREATE', agencyCode) %}
+            <a href="{{ path('app_contrat_entretien_create_client', {agencyCode: agencyCode}) }}" 
+            class="btn btn-success">
+                <i class="bi bi-person-plus"></i> Nouveau client
+            </a>
+        {% endif %}
+    </div>
+
+    {# Sélecteur d'agence #}
+    {% if accessibleAgencies|length > 1 %}
+    <div class="agency-selector mb-3">
+        <small class="text-muted d-block mb-1">Changer d'agence :</small>
+        <div class="btn-group btn-group-sm flex-wrap" role="group">
+            {% for code in accessibleAgencies %}
+                <a href="{{ path('app_contrat_entretien_index', {agencyCode: code}) }}" 
+                   class="btn btn-outline-secondary {{ code == agencyCode ? 'active' : '' }}">
+                    {{ code }}
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ================================================================== #}
+    {#  CARTES STATISTIQUES                                               #}
+    {# ================================================================== #}
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3 col-xl">
+            <div class="card card-stat-contrat h-100">
+                <div class="card-body py-3">
+                    <div class="stat-number">{{ stats.total|default(0) }}</div>
+                    <div class="stat-label">Total contrats</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3 col-xl">
+            <div class="card card-stat-contrat h-100" style="border-left-color: var(--somafi-success);">
+                <div class="card-body py-3">
+                    <div class="stat-number text-success">{{ stats.actif|default(0) }}</div>
+                    <div class="stat-label">Actifs</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3 col-xl">
+            <div class="card card-stat-contrat h-100" style="border-left-color: var(--somafi-danger);">
+                <div class="card-body py-3">
+                    <div class="stat-number text-danger">{{ stats.resilie|default(0) }}</div>
+                    <div class="stat-label">Résiliés</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3 col-xl">
+            <div class="card card-stat-contrat h-100" style="border-left-color: var(--somafi-warning);">
+                <div class="card-body py-3">
+                    <div class="stat-number text-warning">{{ stats.suspendu|default(0) }}</div>
+                    <div class="stat-label">Suspendus</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3 col-xl">
+            <div class="card card-stat-contrat h-100" style="border-left-color: #6c757d;">
+                <div class="card-body py-3">
+                    <div class="stat-number text-secondary">{{ stats.en_attente|default(0) }}</div>
+                    <div class="stat-label">En attente</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ================================================================== #}
+    {#  BARRE DE FILTRES                                                  #}
+    {# ================================================================== #}
+    <div class="filter-bar mb-4">
+        <form method="get" action="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}" class="row g-2 align-items-end">
+            
+            {# Recherche texte #}
+            <div class="col-md-4">
+                <label for="filterSearch" class="form-label form-label-sm mb-1">Recherche</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control" id="filterSearch" name="search" 
+                           value="{{ filters.search }}" placeholder="Client, n° contrat…">
+                </div>
+            </div>
+            
+            {# Filtre statut #}
+            <div class="col-md-2">
+                <label for="filterStatut" class="form-label form-label-sm mb-1">Statut</label>
+                <select class="form-select form-select-sm" id="filterStatut" name="statut">
+                    <option value="">Tous</option>
+                    {% for s in statuts %}
+                        <option value="{{ s }}" {{ filters.statut == s ? 'selected' : '' }}>
+                            {{ s|capitalize|replace({'_': ' '}) }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            {# Tri #}
+            <div class="col-md-2">
+                <label for="filterSort" class="form-label form-label-sm mb-1">Trier par</label>
+                <select class="form-select form-select-sm" id="filterSort" name="sort">
+                    <option value="">Par défaut</option>
+                    <option value="numero_contrat" {{ filters.sort == 'numero_contrat' ? 'selected' : '' }}>N° contrat</option>
+                    <option value="raison_sociale" {{ filters.sort == 'raison_sociale' ? 'selected' : '' }}>Client</option>
+                    <option value="date_signature" {{ filters.sort == 'date_signature' ? 'selected' : '' }}>Date signature</option>
+                    <option value="date_fin_contrat" {{ filters.sort == 'date_fin_contrat' ? 'selected' : '' }}>Date fin</option>
+                    <option value="nombre_visite" {{ filters.sort == 'nombre_visite' ? 'selected' : '' }}>Nb visites</option>
+                    <option value="montant_annuel_ht" {{ filters.sort == 'montant_annuel_ht' ? 'selected' : '' }}>Montant HT</option>
+                    <option value="statut" {{ filters.sort == 'statut' ? 'selected' : '' }}>Statut</option>
+                </select>
+            </div>
+            
+            {# Ordre #}
+            <div class="col-md-1">
+                <label for="filterOrder" class="form-label form-label-sm mb-1">Ordre</label>
+                <select class="form-select form-select-sm" id="filterOrder" name="order">
+                    <option value="DESC" {{ filters.order == 'DESC' ? 'selected' : '' }}>Desc</option>
+                    <option value="ASC" {{ filters.order == 'ASC' ? 'selected' : '' }}>Asc</option>
+                </select>
+            </div>
+            
+            {# Boutons #}
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-sm btn-somafi">
+                    <i class="bi bi-funnel"></i> Filtrer
+                </button>
+                <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}" 
+                   class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-x-lg"></i> Reset
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {# ================================================================== #}
+    {#  TABLEAU DES CONTRATS                                              #}
+    {# ================================================================== #}
+    <div class="card">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <span>
+                <i class="bi bi-list-ul"></i>
+                {{ total }} contrat{{ total > 1 ? 's' : '' }} trouvé{{ total > 1 ? 's' : '' }}
+            </span>
+            {% if total > 0 %}
+                <small class="text-muted">Page {{ currentPage }}/{{ pages }}</small>
+            {% endif %}
+        </div>
+        
+        <div class="card-body p-0">
+            {% if contrats|length > 0 %}
+            <div class="table-responsive">
+                <table class="table table-contrats table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>N° Contrat</th>
+                            <th>Client</th>
+                            <th>Ville</th>
+                            <th class="text-center">Visites</th>
+                            <th class="text-center">Équip.</th>
+                            <th>Date signature</th>
+                            <th>Date fin</th>
+                            <th class="text-end">Montant HT</th>
+                            <th class="text-center">Statut</th>
+                            <th class="text-center">PDF</th>
+                            <th class="text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for contrat in contrats %}
+                        <tr onclick="window.location='{{ path('app_contrat_entretien_show', {agencyCode: agencyCode, id: contrat.id}) }}'">
+                            <td>
+                                <strong>{{ contrat.numero_contrat }}</strong>
+                            </td>
+                            <td>
+                                {{ contrat.client_raison_sociale|default(contrat.client_nom)|default('—') }}
+                            </td>
+                            <td>
+                                {% if contrat.client_cp or contrat.client_ville %}
+                                    {{ contrat.client_cp }} {{ contrat.client_ville }}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-info">{{ contrat.nombre_visite }}</span>
+                            </td>
+                            <td class="text-center">
+                                {{ contrat.nombre_equipement|default(0) }}
+                            </td>
+                            <td>
+                                {{ contrat.date_signature|default('—') }}
+                            </td>
+                            <td>
+                                {% if contrat.date_fin_contrat %}
+                                    {{ contrat.date_fin_contrat }}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                {% if contrat.montant_annuel_ht %}
+                                    {{ contrat.montant_annuel_ht|number_format(2, ',', ' ') }} €
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <span class="badge badge-{{ contrat.statut|default('en_attente') }}">
+                                    {{ contrat.statut|default('en_attente')|capitalize|replace({'_': ' '}) }}
+                                </span>
+                            </td>
+                            <td class="text-center" onclick="event.stopPropagation();">
+                                {% if contrat.contrat_pdf_path %}
+                                    <i class="bi bi-file-pdf text-danger" title="PDF disponible"></i>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center" onclick="event.stopPropagation();">
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{{ path('app_contrat_entretien_show', {agencyCode: agencyCode, id: contrat.id}) }}" 
+                                       class="btn btn-outline-primary btn-sm" title="Voir">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    {% if is_granted('CONTRAT_EDIT', agencyCode) %}
+                                        <a href="{{ path('app_contrat_entretien_edit', {agencyCode: agencyCode, id: contrat.id}) }}" 
+                                           class="btn btn-outline-secondary btn-sm" title="Modifier">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+                    <p class="text-muted mt-2 mb-0">Aucun contrat trouvé pour cette agence.</p>
+                    {% if filters.search or filters.statut %}
+                        <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}" class="btn btn-sm btn-outline-primary mt-2">
+                            <i class="bi bi-x-lg"></i> Réinitialiser les filtres
+                        </a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+
+        {# ============================================================== #}
+        {#  PAGINATION                                                    #}
+        {# ============================================================== #}
+        {% if pages > 1 %}
+        <div class="card-footer bg-white">
+            <nav aria-label="Pagination des contrats">
+                <ul class="pagination pagination-sm justify-content-center mb-0">
+                    {# Précédent #}
+                    <li class="page-item {{ currentPage <= 1 ? 'disabled' : '' }}">
+                        <a class="page-link" 
+                           href="{{ path('app_contrat_entretien_index', filters|merge({agencyCode: agencyCode, page: currentPage - 1})) }}">
+                            <i class="bi bi-chevron-left"></i>
+                        </a>
+                    </li>
+                    
+                    {# Pages #}
+                    {% set startPage = max(1, currentPage - 3) %}
+                    {% set endPage = min(pages, currentPage + 3) %}
+                    
+                    {% if startPage > 1 %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ path('app_contrat_entretien_index', filters|merge({agencyCode: agencyCode, page: 1})) }}">1</a>
+                        </li>
+                        {% if startPage > 2 %}
+                            <li class="page-item disabled"><span class="page-link">…</span></li>
+                        {% endif %}
+                    {% endif %}
+                    
+                    {% for p in startPage..endPage %}
+                        <li class="page-item {{ p == currentPage ? 'active' : '' }}">
+                            <a class="page-link" 
+                               href="{{ path('app_contrat_entretien_index', filters|merge({agencyCode: agencyCode, page: p})) }}">
+                                {{ p }}
+                            </a>
+                        </li>
+                    {% endfor %}
+                    
+                    {% if endPage < pages %}
+                        {% if endPage < pages - 1 %}
+                            <li class="page-item disabled"><span class="page-link">…</span></li>
+                        {% endif %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ path('app_contrat_entretien_index', filters|merge({agencyCode: agencyCode, page: pages})) }}">{{ pages }}</a>
+                        </li>
+                    {% endif %}
+                    
+                    {# Suivant #}
+                    <li class="page-item {{ currentPage >= pages ? 'disabled' : '' }}">
+                        <a class="page-link" 
+                           href="{{ path('app_contrat_entretien_index', filters|merge({agencyCode: agencyCode, page: currentPage + 1})) }}">
+                            <i class="bi bi-chevron-right"></i>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

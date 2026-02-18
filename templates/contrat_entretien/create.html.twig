@@ -1,0 +1,43 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Nouveau contrat — {{ agencyCode }} - SOMAFI{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_home') }}">Accueil</a></li>
+            <li class="breadcrumb-item">
+                <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}">
+                    Contrats {{ agencyCode }}
+                </a>
+            </li>
+            <li class="breadcrumb-item active">Nouveau contrat</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>
+            <i class="bi bi-plus-circle"></i> 
+            Nouveau contrat — {{ agencyCode }}
+            {% if agency %}<small class="text-muted">({{ agency.nom }})</small>{% endif %}
+        </h2>
+        <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}" 
+           class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Retour
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-cone-striped text-warning" style="font-size: 4rem;"></i>
+            <h4 class="mt-3">Formulaire en cours de développement</h4>
+            <p class="text-muted">
+                Le formulaire de création de contrat sera implémenté en <strong>Phase 2</strong>.<br>
+                Il inclura : sélection/création du client, upload PDF, configuration des visites et équipements.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

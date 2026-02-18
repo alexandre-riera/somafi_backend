@@ -48,13 +48,13 @@ security:
 
     # Hiérarchie des rôles
     role_hierarchy:
-        ROLE_ADMIN: [ROLE_CC_ADMIN, ROLE_ADMIN_AGENCE, ROLE_USER]
-        ROLE_CC_ADMIN: [ROLE_CLIENT_CC, ROLE_USER]
-        ROLE_ADMIN_AGENCE: [ROLE_USER_AGENCE, ROLE_USER]
+        ROLE_ADMIN: [ROLE_ADMIN_AGENCE, ROLE_USER]
+        ROLE_ADMIN_AGENCE: [ROLE_GESTIONNAIRE_CONTRAT, ROLE_USER_AGENCE, ROLE_USER]
+        ROLE_GESTIONNAIRE_CONTRAT: [ROLE_USER_AGENCE, ROLE_USER]   # ← NOUVEAU
         ROLE_USER_AGENCE: [ROLE_USER]
         ROLE_CLIENT_CC: [ROLE_USER]
-        # Rôles dynamiques Contrat Cadre (ex: MONDIAL-RELAY_ADMIN, XPO_USER)
-        # Gérés par le LoginSuccessHandler + vérification dans ContratCadreController
+        # Rôles dynamiques Contrat Cadre (ex: KUEHNE_ADMIN, XPO_USER)
+        # Gérés par le Voter ContratCadreVoter
 
     # Access control
     access_control:

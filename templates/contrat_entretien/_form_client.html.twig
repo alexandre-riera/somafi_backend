@@ -1,0 +1,96 @@
+{# 
+    templates/contrat_entretien/_form_client.html.twig
+    
+    Partial réutilisable pour le formulaire client.
+    Utilisé dans create_client.html.twig et edit_client.html.twig (futur).
+    
+    Variables attendues :
+    - form : le formulaire Symfony (ContactType)
+#}
+
+{# ── Section 1 : Identité client ──────────────────────── #}
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white">
+        <h5 class="mb-0"><i class="bi bi-building"></i> Identité du client</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-8 mb-3">
+                {{ form_row(form.raisonSociale) }}
+            </div>
+            <div class="col-md-4 mb-3">
+                {{ form_row(form.idSociete) }}
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                {{ form_row(form.nom) }}
+            </div>
+            <div class="col-md-4 mb-3">
+                {{ form_row(form.prenom) }}
+            </div>
+            <div class="col-md-4 mb-3">
+                {{ form_row(form.idContact) }}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Section 2 : Adresse ──────────────────────────────── #}
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white">
+        <h5 class="mb-0"><i class="bi bi-geo-alt"></i> Adresse</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-8 mb-3">
+                {{ form_row(form.adressep1) }}
+            </div>
+            <div class="col-md-4 mb-3">
+                {{ form_row(form.adressep2) }}
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                {{ form_row(form.cpostalp) }}
+            </div>
+            <div class="col-md-9 mb-3">
+                {{ form_row(form.villep) }}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Section 3 : Coordonnées ──────────────────────────── #}
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white">
+        <h5 class="mb-0"><i class="bi bi-telephone"></i> Coordonnées</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                {{ form_row(form.telephone) }}
+            </div>
+            <div class="col-md-4 mb-3">
+                {{ form_row(form.email) }}
+            </div>
+            <div class="col-md-4 mb-3">
+                {{ form_row(form.contactSite) }}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Section 4 : Informations bancaires ───────────────── #}
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white">
+        <h5 class="mb-0"><i class="bi bi-bank"></i> Informations bancaires</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                {{ form_row(form.rib) }}
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,327 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Contrat n°{{ contrat.numero_contrat }} — {{ agencyCode }} - SOMAFI{% endblock %}
+
+{% block stylesheets %}
+<style>
+    .badge-actif { background-color: var(--somafi-success); }
+    .badge-resilie { background-color: var(--somafi-danger); }
+    .badge-suspendu { background-color: var(--somafi-warning); color: #333; }
+    .badge-en_attente { background-color: #6c757d; }
+    
+    .detail-label {
+        font-weight: 600;
+        color: #6c757d;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .detail-value {
+        font-size: 1rem;
+        margin-bottom: 0.75rem;
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+
+    {# Breadcrumb #}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_home') }}">Accueil</a></li>
+            <li class="breadcrumb-item">
+                <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}">
+                    Contrats {{ agencyCode }}
+                </a>
+            </li>
+            <li class="breadcrumb-item active">Contrat n°{{ contrat.numero_contrat }}</li>
+        </ol>
+    </nav>
+
+    {# Header #}
+    <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="mb-1">
+                <i class="bi bi-file-earmark-text"></i>
+                Contrat n°{{ contrat.numero_contrat }}
+                <span class="badge badge-{{ contrat.statut|default('en_attente') }} ms-2" style="font-size: 0.6em; vertical-align: middle;">
+                    {{ contrat.statut|default('en_attente')|capitalize|replace({'_': ' '}) }}
+                </span>
+            </h2>
+            <p class="text-muted mb-0">
+                {{ agencyCode }}{% if agency %} — {{ agency.nom }}{% endif %}
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            {% if is_granted('CONTRAT_EDIT', agencyCode) %}
+                <a href="{{ path('app_contrat_entretien_edit', {agencyCode: agencyCode, id: contrat.id}) }}" 
+                   class="btn btn-outline-primary">
+                    <i class="bi bi-pencil"></i> Modifier
+                </a>
+            {% endif %}
+            <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}" 
+               class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Retour
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        {# ============================================================== #}
+        {#  BLOC INFOS CONTRAT                                            #}
+        {# ============================================================== #}
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-file-text"></i> Informations du contrat</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-sm-6">
+                            <div class="detail-label">N° Contrat</div>
+                            <div class="detail-value">{{ contrat.numero_contrat }}</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Statut</div>
+                            <div class="detail-value">
+                                <span class="badge badge-{{ contrat.statut|default('en_attente') }}">
+                                    {{ contrat.statut|default('—')|capitalize|replace({'_': ' '}) }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Date signature</div>
+                            <div class="detail-value">{{ contrat.date_signature|default('—') }}</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Durée</div>
+                            <div class="detail-value">{{ contrat.duree|default('—') }}</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Date début</div>
+                            <div class="detail-value">{{ contrat.date_debut_contrat|default('—') }}</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Date fin</div>
+                            <div class="detail-value">{{ contrat.date_fin_contrat|default('—') }}</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Nb visites / an</div>
+                            <div class="detail-value">
+                                <span class="badge bg-info">{{ contrat.nombre_visite }}</span>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Nb équipements (contrat)</div>
+                            <div class="detail-value">{{ contrat.nombre_equipement|default(0) }}</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Tacite reconduction</div>
+                            <div class="detail-value">{{ contrat.is_tacite_reconduction ? 'Oui' : 'Non' }}</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Revalorisation</div>
+                            <div class="detail-value">{{ contrat.valorisation|default(contrat.mode_revalorisation)|default('—') }}</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">Montant annuel HT</div>
+                            <div class="detail-value">
+                                {% if contrat.montant_annuel_ht %}
+                                    <strong>{{ contrat.montant_annuel_ht|number_format(2, ',', ' ') }} €</strong>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="detail-label">PDF Contrat</div>
+                            <div class="detail-value">
+                                {% if contrat.contrat_pdf_path %}
+                                    <i class="bi bi-file-pdf text-danger"></i> Disponible
+                                {% else %}
+                                    <span class="text-muted">Non uploadé</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {% if contrat.notes %}
+                    <hr>
+                    <div class="detail-label">Notes</div>
+                    <div class="detail-value">{{ contrat.notes|nl2br }}</div>
+                    {% endif %}
+                    
+                    {% if contrat.statut == 'resilie' %}
+                    <hr>
+                    <div class="alert alert-danger mb-0">
+                        <strong>Contrat résilié</strong>
+                        {% if contrat.date_resiliation %} le {{ contrat.date_resiliation }}{% endif %}
+                        {% if contrat.motif_resiliation %}<br>Motif : {{ contrat.motif_resiliation }}{% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {# ============================================================== #}
+        {#  BLOC INFOS CLIENT                                             #}
+        {# ============================================================== #}
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-person-vcard"></i> Client</h5>
+                </div>
+                <div class="card-body">
+                    {% if contrat.client_raison_sociale or contrat.client_nom %}
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="detail-label">Raison sociale</div>
+                                <div class="detail-value fs-5">
+                                    <strong>{{ contrat.client_raison_sociale|default(contrat.client_nom)|default('—') }}</strong>
+                                </div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="detail-label">ID Contact</div>
+                                <div class="detail-value">{{ contrat.client_id_contact|default(contrat.id_contact)|default('—') }}</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="detail-label">ID Société</div>
+                                <div class="detail-value">{{ contrat.client_id_societe|default('—') }}</div>
+                            </div>
+                            <div class="col-12">
+                                <div class="detail-label">Adresse</div>
+                                <div class="detail-value">
+                                    {{ contrat.client_adresse1|default('') }}<br>
+                                    {% if contrat.client_adresse2 %}{{ contrat.client_adresse2 }}<br>{% endif %}
+                                    {{ contrat.client_cp|default('') }} {{ contrat.client_ville|default('') }}
+                                </div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="detail-label">Téléphone</div>
+                                <div class="detail-value">{{ contrat.client_telephone|default('—') }}</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="detail-label">Email</div>
+                                <div class="detail-value">{{ contrat.client_email|default('—') }}</div>
+                            </div>
+                            {% if contrat.client_contact_site %}
+                            <div class="col-12">
+                                <div class="detail-label">Contact site</div>
+                                <div class="detail-value">{{ contrat.client_contact_site }}</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="text-center text-muted py-4">
+                            <i class="bi bi-person-x fs-1"></i>
+                            <p class="mt-2 mb-0">Aucun client lié à ce contrat.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {# ============================================================== #}
+        {#  BLOC STATS ÉQUIPEMENTS                                        #}
+        {# ============================================================== #}
+        {% if equipStats %}
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-gear"></i> Parc équipements</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="fs-3 fw-bold text-primary">{{ equipStats.total }}</div>
+                            <small class="text-muted">Total</small>
+                        </div>
+                        <div class="col-4">
+                            <div class="fs-3 fw-bold text-success">{{ equipStats.au_contrat }}</div>
+                            <small class="text-muted">Au contrat</small>
+                        </div>
+                        <div class="col-4">
+                            <div class="fs-3 fw-bold text-warning">{{ equipStats.hors_contrat }}</div>
+                            <small class="text-muted">Hors contrat</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {# ============================================================== #}
+        {#  BLOC AVENANTS                                                 #}
+        {# ============================================================== #}
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-file-earmark-plus"></i> Avenants ({{ avenants|length }})</h5>
+                </div>
+                <div class="card-body">
+                    {% if avenants|length > 0 %}
+                        <div class="list-group list-group-flush">
+                            {% for avenant in avenants %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <strong>{{ avenant.numero_avenant }}</strong>
+                                        <span class="text-muted ms-2">{{ avenant.date_avenant }}</span>
+                                        {% if avenant.description %}
+                                            <br><small class="text-muted">{{ avenant.description }}</small>
+                                        {% endif %}
+                                    </div>
+                                    {% if avenant.pdf_path %}
+                                        <span class="badge bg-light text-danger">
+                                            <i class="bi bi-file-pdf"></i> PDF
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted text-center mb-0 py-3">
+                            <i class="bi bi-inbox"></i> Aucun avenant enregistré.
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ================================================================== #}
+    {#  ACTIONS DANGEREUSES                                               #}
+    {# ================================================================== #}
+    {% if is_granted('CONTRAT_DEACTIVATE', agencyCode) or is_granted('CONTRAT_DELETE', agencyCode) %}
+    <hr class="my-4">
+    <div class="card border-danger">
+        <div class="card-header bg-white text-danger">
+            <h6 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Zone dangereuse</h6>
+        </div>
+        <div class="card-body d-flex gap-3 flex-wrap">
+            {% if is_granted('CONTRAT_DEACTIVATE', agencyCode) and contrat.statut != 'resilie' %}
+                <form method="post" action="{{ path('app_contrat_entretien_deactivate', {agencyCode: agencyCode, id: contrat.id}) }}" 
+                      onsubmit="return confirm('Résilier ce contrat ? Cette action est irréversible.');">
+                    <input type="hidden" name="_token" value="{{ csrf_token('deactivate-contrat-' ~ contrat.id) }}">
+                    <button type="submit" class="btn btn-warning">
+                        <i class="bi bi-slash-circle"></i> Résilier le contrat
+                    </button>
+                </form>
+            {% endif %}
+            
+            {% if is_granted('CONTRAT_DELETE', agencyCode) %}
+                <form method="post" action="{{ path('app_contrat_entretien_delete', {agencyCode: agencyCode, id: contrat.id}) }}" 
+                      onsubmit="return confirm('SUPPRIMER DÉFINITIVEMENT ce contrat et tous ses avenants ? Cette action est irréversible !');">
+                    <input type="hidden" name="_token" value="{{ csrf_token('delete-contrat-' ~ contrat.id) }}">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash3"></i> Supprimer définitivement
+                    </button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

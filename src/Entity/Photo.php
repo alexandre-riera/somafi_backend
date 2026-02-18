@@ -216,6 +216,14 @@ class Photo
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $photo_feux = null;
 
+    // ========== Photos complémentaires ==========
+
+    #[ORM\Column(length: 500, nullable: true)]
+    private ?string $photo_complementaire_equipement = null;
+
+    #[ORM\Column(length: 500, nullable: true)]
+    private ?string $photo_feuille_prise_de_cote = null;
+
     // ========== Photos marquage au sol ==========
 
     #[ORM\Column(length: 255, nullable: true)]
@@ -876,6 +884,30 @@ class Photo
     public function setPhotoMarquageAuSol2(?string $photo_marquage_au_sol_2): static
     {
         $this->photo_marquage_au_sol_2 = $photo_marquage_au_sol_2;
+        return $this;
+    }
+
+    // --- Photos complémentaires ---
+
+    public function getPhotoComplementaireEquipement(): ?string
+    {
+        return $this->photo_complementaire_equipement;
+    }
+
+    public function setPhotoComplementaireEquipement(?string $photo_complementaire_equipement): static
+    {
+        $this->photo_complementaire_equipement = $photo_complementaire_equipement;
+        return $this;
+    }
+
+    public function getPhotoFeuillePriseDeCote(): ?string
+    {
+        return $this->photo_feuille_prise_de_cote;
+    }
+
+    public function setPhotoFeuillePriseDeCote(?string $photo_feuille_prise_de_cote): static
+    {
+        $this->photo_feuille_prise_de_cote = $photo_feuille_prise_de_cote;
         return $this;
     }
 

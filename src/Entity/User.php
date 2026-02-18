@@ -21,6 +21,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public const ROLE_USER = 'ROLE_USER';
     public const ROLE_ADMIN = 'ROLE_ADMIN';
     public const ROLE_ADMIN_AGENCE = 'ROLE_ADMIN_AGENCE';
+    public const ROLE_GESTIONNAIRE_CONTRAT = 'ROLE_GESTIONNAIRE_CONTRAT';
     public const ROLE_USER_AGENCE = 'ROLE_USER_AGENCE';
     public const ROLE_CLIENT_CC = 'ROLE_CLIENT_CC';
 
@@ -345,5 +346,15 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function __toString(): string
     {
         return $this->getFullName() ?: $this->email ?? '';
+    }
+
+    /**
+     * Vérifie si l'utilisateur est gestionnaire de contrats (ou supérieur)
+     */
+    public function isGestionnaireContrat(): bool
+    {
+        return in_array(self::ROLE_GESTIONNAIRE_CONTRAT, $this->getRoles(), true)
+            || in_array(self::ROLE_ADMIN_AGENCE, $this->getRoles(), true)
+            || in_array(self::ROLE_ADMIN, $this->getRoles(), true);
     }
 }

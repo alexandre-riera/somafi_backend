@@ -1,0 +1,140 @@
+{# 
+    templates/contrat_entretien/create_client.html.twig
+    
+    Page de création d'un nouveau client pour une agence.
+    Route : /contrats/{agencyCode}/client/new
+    
+    Variables attendues :
+    - form : le formulaire Symfony (ContactType)
+    - agencyCode : code agence (ex: S100)
+    - agencyName : nom complet de l'agence (ex: Montpellier)
+#}
+
+{% extends 'base.html.twig' %}
+
+{% block title %}Nouveau client - {{ agencyCode }} - SOMAFI{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+
+    {# ── Breadcrumb ────────────────────────────────────── #}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item">
+                <a href="{{ path('app_home') }}"><i class="bi bi-house"></i> Accueil</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}">
+                    Contrats {{ agencyCode }}
+                </a>
+            </li>
+            <li class="breadcrumb-item active">Nouveau client</li>
+        </ol>
+    </nav>
+
+    {# ── Titre page ────────────────────────────────────── #}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2>
+                <i class="bi bi-person-plus"></i> 
+                Nouveau client
+            </h2>
+            <p class="text-muted mb-0">
+                Agence <strong>{{ agencyCode }}</strong>
+                {% if agencyName is defined and agencyName %} — {{ agencyName }}{% endif %}
+            </p>
+        </div>
+        <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}" 
+           class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Retour listing
+        </a>
+    </div>
+
+    {# ── Messages flash ────────────────────────────────── #}
+    {% for type, messages in app.flashes %}
+        {% for message in messages %}
+            <div class="alert alert-{{ type == 'error' ? 'danger' : type }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endfor %}
+
+    {# ── Erreurs formulaire (globales) ─────────────────── #}
+    {% if form.vars.errors|length > 0 %}
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>Erreurs de validation :</strong>
+            <ul class="mb-0 mt-2">
+                {% for error in form.vars.errors %}
+                    <li>{{ error.message }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    {# ── Formulaire ────────────────────────────────────── #}
+    {{ form_start(form, {
+        'attr': {
+            'id': 'form-create-client',
+            'novalidate': 'novalidate',
+            'class': ''
+        }
+    }) }}
+
+        {# Include du partial formulaire #}
+        {% include 'contrat_entretien/_form_client.html.twig' with {form: form} %}
+
+        {# ── Boutons d'action ──────────────────────────── #}
+        <div class="d-flex justify-content-between align-items-center mt-4 mb-5">
+            <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}" 
+               class="btn btn-outline-secondary">
+                <i class="bi bi-x-lg"></i> Annuler
+            </a>
+            
+            <div>
+                <button type="submit" name="action" value="save_and_list" class="btn btn-outline-primary me-2">
+                    <i class="bi bi-check"></i> Enregistrer et retour
+                </button>
+                <button type="submit" name="action" value="save_and_contrat" class="btn btn-primary">
+                    <i class="bi bi-check-lg"></i> Enregistrer et créer un contrat
+                </button>
+            </div>
+        </div>
+
+    {{ form_end(form) }}
+
+</div>
+
+{# ── JS : mise en majuscules auto de la ville ──────────── #}
+{% block javascripts %}
+    {{ parent() }}
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Auto-uppercase ville
+            const villeInput = document.getElementById('{{ form.villep.vars.id }}');
+            if (villeInput) {
+                villeInput.addEventListener('blur', function() {
+                    this.value = this.value.toUpperCase();
+                });
+            }
+
+            // Auto-uppercase raison sociale
+            const rsInput = document.getElementById('{{ form.raisonSociale.vars.id }}');
+            if (rsInput) {
+                rsInput.addEventListener('blur', function() {
+                    this.value = this.value.toUpperCase();
+                });
+            }
+
+            // Validation code postal en temps réel
+            const cpInput = document.getElementById('{{ form.cpostalp.vars.id }}');
+            if (cpInput) {
+                cpInput.addEventListener('input', function() {
+                    this.value = this.value.replace(/\D/g, '').substring(0, 5);
+                });
+            }
+        });
+    </script>
+{% endblock %}
+{% endblock %}
