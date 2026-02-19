@@ -92,7 +92,7 @@
                         </div>
                         <div class="col-sm-6">
                             <div class="detail-label">Date signature</div>
-                            <div class="detail-value">{{ contrat.date_signature|default('—') }}</div>
+                            <div class="detail-value">{{ contrat.date_signature|date('d/m/Y')|default('—') }}</div>
                         </div>
                         <div class="col-sm-6">
                             <div class="detail-label">Durée</div>
@@ -100,11 +100,11 @@
                         </div>
                         <div class="col-sm-6">
                             <div class="detail-label">Date début</div>
-                            <div class="detail-value">{{ contrat.date_debut_contrat|default('—') }}</div>
+                            <div class="detail-value">{{ contrat.date_debut_contrat|date('d/m/Y')|default('—') }}</div>
                         </div>
                         <div class="col-sm-6">
                             <div class="detail-label">Date fin</div>
-                            <div class="detail-value">{{ contrat.date_fin_contrat|default('—') }}</div>
+                            <div class="detail-value">{{ contrat.date_fin_contrat|date('d/m/Y')|default('—') }}</div>
                         </div>
                         <div class="col-sm-6">
                             <div class="detail-label">Nb visites / an</div>
@@ -122,7 +122,15 @@
                         </div>
                         <div class="col-sm-6">
                             <div class="detail-label">Revalorisation</div>
-                            <div class="detail-value">{{ contrat.valorisation|default(contrat.mode_revalorisation)|default('—') }}</div>
+                            <div class="detail-value">
+                                {{ contrat.valorisation|default('—') }}
+                                {% if contrat.mode_revalorisation %}
+                                    · {{ contrat.mode_revalorisation }}
+                                {% endif %}
+                                {% if contrat.taux_revalorisation %}
+                                    ({{ contrat.taux_revalorisation }}%)
+                                {% endif %}
+                            </div>
                         </div>
                         <div class="col-sm-6">
                             <div class="detail-label">Montant annuel HT</div>
@@ -135,10 +143,13 @@
                             </div>
                         </div>
                         <div class="col-sm-6">
-                            <div class="detail-label">PDF Contrat</div>
+                            <div class="detail-label">PDF du Contrat</div>
                             <div class="detail-value">
                                 {% if contrat.contrat_pdf_path %}
-                                    <i class="bi bi-file-pdf text-danger"></i> Disponible
+                                    <a href="{{ path('app_contrat_entretien_download_pdf', {agencyCode: agencyCode, id: contrat.id}) }}"
+                                       class="btn btn-sm btn-outline-primary" target="_blank">
+                                        <i class="bi bi-file-earmark-pdf"></i> Télécharger le contrat
+                                    </a>
                                 {% else %}
                                     <span class="text-muted">Non uploadé</span>
                                 {% endif %}

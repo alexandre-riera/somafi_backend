@@ -92,3 +92,13 @@ services:
         arguments:
             $storagePath: '%storage.path%'
             $projectDir: '%kernel.project_dir%'
+
+    # ==== SERVICE SYNCHRONISATION LISTE CLIENT KIZEO APRES LA CREATION =====
+    App\Service\Kizeo\KizeoClientListSyncService:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+    
+    # ===== SERVICES CONTRAT PDF =====
+    App\Service\ContratPdfService:
+        arguments:
+            $projectDir: '%kernel.project_dir%'

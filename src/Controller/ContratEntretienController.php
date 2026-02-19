@@ -4,6 +4,8 @@ namespace App\Controller;
 
 use App\Security\Voter\ContratEntretienVoter;
 use App\Service\ContratEntretienService;
+use App\Service\ContactService;
+use App\Service\Kizeo\KizeoClientListSyncService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -11,6 +13,9 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use App\DTO\ContactDTO;
 use App\Form\ContactType;
+use App\DTO\ContratEntretienDTO;
+use App\Form\ContratEntretienType;
+use App\Service\ContratPdfService;
 
 /**
  * Contrôleur pour la gestion des contrats d'entretien.
@@ -26,6 +31,9 @@ class ContratEntretienController extends AbstractController
 {
     public function __construct(
         private readonly ContratEntretienService $contratService,
+        private readonly ContactService $contactService,
+        private readonly KizeoClientListSyncService $kizeoClientSync,
+        private readonly ContratPdfService $contratPdfService,
     ) {
     }
 
@@ -147,21 +155,100 @@ class ContratEntretienController extends AbstractController
     #[Route('/{agencyCode}/new', name: 'app_contrat_entretien_create', methods: ['GET', 'POST'])]
     public function create(string $agencyCode, Request $request): Response
     {
-        $agencyCode = $this->resolveAgencyOrThrow($agencyCode);
+        $agencyCode = strtoupper($agencyCode);
 
-        // Vérification Voter
         $this->denyAccessUnlessGranted(ContratEntretienVoter::CREATE, $agencyCode);
 
-        $agency = $this->contratService->getAgencyInfo($agencyCode);
+        $dto = new ContratEntretienDTO();
 
-        // TODO Phase 2 : Formulaire ContratEntretienType + traitement POST
-        // if ($request->isMethod('POST')) {
-        //     // Validation, insertion DBAL, flash message, redirect
-        // }
+        // Pré-remplissage si on vient de la création client (save_and_contrat)
+        $contactId = $request->query->get('contactId');
+        $idContact = $request->query->get('idContact');
+        if ($contactId && $idContact) {
+            $dto->contactId = (int) $contactId;
+            $dto->idContact = $idContact;
+        }
+
+        // Auto-suggérer le prochain numéro de contrat
+        $dto->numeroContrat = $this->contratService->getNextNumeroContrat($agencyCode);
+
+        $form = $this->createForm(ContratEntretienType::class, $dto);
+        $form->handleRequest($request);
+
+        // Récupérer les infos client pour affichage
+        $clientInfo = null;
+        if ($dto->contactId) {
+            $clientInfo = $this->contactService->findById($agencyCode, $dto->contactId);
+        }
+
+        if ($form->isSubmitted() && $form->isValid()) {
+            try {
+                // 0. Vérifier que le client existe
+                $client = $this->contactService->findById($agencyCode, $dto->contactId);
+                if (!$client) {
+                    $this->addFlash('danger', sprintf(
+                        'Client introuvable (contact_id: %d) sur l\'agence %s. Créez d\'abord le client.',
+                        $dto->contactId,
+                        $agencyCode
+                    ));
+                    return $this->render('contrat_entretien/create.html.twig', [
+                        'form' => $form->createView(),
+                        'agencyCode' => $agencyCode,
+                        'clientInfo' => $clientInfo,
+                        'dto' => $dto,
+                    ]);
+                }
+                // 1. Upload PDF si fourni
+                $pdfPath = null;
+                if ($dto->contratPdfFile) {
+                    $pdfPath = $this->contratPdfService->uploadContratPdf(
+                        $agencyCode,
+                        $dto->idContact,
+                        $dto->numeroContrat,
+                        $dto->contratPdfFile
+                    );
+                }
+
+                // 2. Insertion en BDD
+                $userId = $this->getUser()?->getId();
+                $contratId = $this->contratService->insertContrat(
+                    $agencyCode,
+                    $dto,
+                    $userId,
+                    $pdfPath
+                );
+
+                $this->addFlash('success', sprintf(
+                    'Contrat n°%d créé avec succès pour le client %s.',
+                    $dto->numeroContrat,
+                    $clientInfo['raison_sociale'] ?? $dto->idContact
+                ));
+
+                $action = $request->request->get('action', 'save_and_show');
+
+                if ($action === 'save_and_equipements') {
+                    // Redirection vers la génération d'équipements (Phase 2.6)
+                    return $this->redirectToRoute('app_contrat_entretien_show', [
+                        'agencyCode' => $agencyCode,
+                        'id' => $contratId,
+                    ]);
+                }
+
+                return $this->redirectToRoute('app_contrat_entretien_show', [
+                    'agencyCode' => $agencyCode,
+                    'id' => $contratId,
+                ]);
+
+            } catch (\Exception $e) {
+                $this->addFlash('danger', 'Erreur lors de la création du contrat : ' . $e->getMessage());
+            }
+        }
 
         return $this->render('contrat_entretien/create.html.twig', [
+            'form' => $form->createView(),
             'agencyCode' => $agencyCode,
-            'agency'     => $agency,
+            'clientInfo' => $clientInfo,
+            'dto' => $dto,
         ]);
     }
 
@@ -190,15 +277,62 @@ class ContratEntretienController extends AbstractController
 
         $agency = $this->contratService->getAgencyInfo($agencyCode);
 
-        // TODO Phase 2 : Formulaire pré-rempli + traitement POST
-        // if ($request->isMethod('POST')) {
-        //     // Validation, UPDATE DBAL, flash message, redirect
-        // }
+        // Hydrater le DTO depuis les données existantes
+        $dto = ContratEntretienDTO::fromArray($contrat);
+
+        $form = $this->createForm(ContratEntretienType::class, $dto);
+        $form->handleRequest($request);
+
+        // Infos client pour le bandeau
+        $clientInfo = null;
+        if ($dto->contactId) {
+            $clientInfo = $this->contactService->findById($agencyCode, $dto->contactId);
+        }
+
+        if ($form->isSubmitted() && $form->isValid()) {
+            try {
+                // 1. Upload PDF si un nouveau fichier est fourni
+                $pdfPath = null;
+                if ($dto->contratPdfFile) {
+                    $pdfPath = $this->contratPdfService->uploadContratPdf(
+                        $agencyCode,
+                        $contrat['id_contact'],
+                        $contrat['numero_contrat'],
+                        $dto->contratPdfFile
+                    );
+                }
+
+                // 2. Mise à jour en BDD
+                $this->contratService->updateContrat(
+                    $agencyCode,
+                    $id,
+                    $dto,
+                    $pdfPath
+                );
+
+                $this->addFlash('success', sprintf(
+                    'Contrat n°%d mis à jour avec succès.%s',
+                    $contrat['numero_contrat'],
+                    $pdfPath ? ' PDF uploadé.' : ''
+                ));
+
+                return $this->redirectToRoute('app_contrat_entretien_show', [
+                    'agencyCode' => $agencyCode,
+                    'id'         => $id,
+                ]);
+
+            } catch (\Exception $e) {
+                $this->addFlash('danger', 'Erreur lors de la mise à jour : ' . $e->getMessage());
+            }
+        }
 
         return $this->render('contrat_entretien/edit.html.twig', [
             'agencyCode' => $agencyCode,
             'agency'     => $agency,
             'contrat'    => $contrat,
+            'form'       => $form->createView(),
+            'clientInfo' => $clientInfo,
+            'dto'        => $dto,
         ]);
     }
 
@@ -356,14 +490,13 @@ class ContratEntretienController extends AbstractController
         return $this->json($stats);
     }
 
-    #[Route('/contrats/{agencyCode}/client/new', name: 'app_contrat_entretien_create_client', methods: ['GET', 'POST'])]
+    #[Route('/{agencyCode}/client/new', name: 'app_contrat_entretien_create_client', methods: ['GET', 'POST'])]
     public function createClient(
         string $agencyCode,
         Request $request,
     ): Response {
         $agencyCode = strtoupper($agencyCode);
         
-        // Vérification accès (réutilise le voter existant)
         $this->denyAccessUnlessGranted(ContratEntretienVoter::CREATE, $agencyCode);
         
         $dto = new ContactDTO();
@@ -371,31 +504,46 @@ class ContratEntretienController extends AbstractController
         $form->handleRequest($request);
         
         if ($form->isSubmitted() && $form->isValid()) {
-            // Phase 2.2 — insertion via ContactService
-            // $newId = $this->contactService->insertContact($agencyCode, $dto);
-            
-            $action = $request->request->get('action', 'save_and_list');
-            
-            $this->addFlash('success', sprintf(
-                'Client "%s" créé avec succès sur l\'agence %s.',
-                $dto->raisonSociale,
-                $agencyCode
-            ));
-            
-            if ($action === 'save_and_contrat') {
-                // Redirige vers la création de contrat avec le client pré-sélectionné
-                return $this->redirectToRoute('app_contrat_entretien_create', [
+            try {
+                $newId = $this->contactService->insertContact($agencyCode, $dto);
+                
+                // === Phase 2.3 — Sync immédiat vers Kizeo ===
+                $syncResult = $this->kizeoClientSync->syncNewClient($agencyCode, $newId);
+                
+                if (!$syncResult['success'] && $syncResult['error']) {
+                    // Afficher l'erreur (collision, API down, etc.)
+                    // Non bloquant pour la création en BDD (le client est déjà inséré)
+                    $this->addFlash('warning', $syncResult['error']);
+                }
+                // === Fin Phase 2.3 ===
+                
+                $action = $request->request->get('action', 'save_and_list');
+                
+                $this->addFlash('success', sprintf(
+                    'Client "%s" créé avec succès sur l\'agence %s (ID: %d).%s',
+                    $dto->raisonSociale,
+                    $agencyCode,
+                    $newId,
+                    $syncResult['success'] ? ' Synchronisé sur Kizeo.' : ''
+                ));
+                
+                if ($action === 'save_and_contrat') {
+                    return $this->redirectToRoute('app_contrat_entretien_create', [
+                        'agencyCode' => $agencyCode,
+                        'contactId' => $newId,          // ID BDD (int)
+                        'idContact' => $dto->idContact, // ID métier (string)
+                    ]);
+                }
+                
+                return $this->redirectToRoute('app_contrat_entretien_index', [
                     'agencyCode' => $agencyCode,
-                    // 'clientId' => $newId,  // Phase 2.4
                 ]);
+                
+            } catch (\RuntimeException $e) {
+                $this->addFlash('danger', $e->getMessage());
             }
-            
-            return $this->redirectToRoute('app_contrat_entretien_index', [
-                'agencyCode' => $agencyCode,
-            ]);
         }
         
-        // Récupérer le nom de l'agence
         $agency = $this->contratService->getAgencyByCode($agencyCode);
         
         return $this->render('contrat_entretien/create_client.html.twig', [
@@ -403,6 +551,41 @@ class ContratEntretienController extends AbstractController
             'agencyCode' => $agencyCode,
             'agencyName' => $agency ? $agency['nom'] : null,
         ]);
+    }
+
+    // =========================================================================
+    //  DOWNLOAD PDF — Téléchargement du PDF contrat
+    // =========================================================================
+
+    /**
+     * Télécharge le PDF du contrat.
+     *
+     * URL : /contrats/{agencyCode}/{id}/pdf
+     */
+    #[Route('/{agencyCode}/{id}/pdf', name: 'app_contrat_entretien_download_pdf', requirements: ['id' => '\d+'], methods: ['GET'])]
+    public function downloadPdf(string $agencyCode, int $id): Response
+    {
+        $agencyCode = $this->resolveAgencyOrThrow($agencyCode);
+
+        $contrat = $this->contratService->getContratById($agencyCode, $id);
+
+        if (!$contrat) {
+            throw $this->createNotFoundException("Contrat #{$id} introuvable.");
+        }
+
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::VIEW, $agencyCode);
+
+        if (empty($contrat['contrat_pdf_path'])) {
+            throw $this->createNotFoundException("Aucun PDF associé à ce contrat.");
+        }
+
+        $filePath = $this->getParameter('kernel.project_dir') . '/storage/' . $contrat['contrat_pdf_path'];
+
+        if (!file_exists($filePath)) {
+            throw $this->createNotFoundException("Fichier PDF introuvable sur le serveur.");
+        }
+
+        return $this->file($filePath);
     }
 
     // =========================================================================

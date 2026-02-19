@@ -1,0 +1,166 @@
+{# templates/contrat_entretien/_form_contrat.html.twig #}
+
+{% if clientInfo %}
+<div class="alert alert-info d-flex align-items-center mb-4">
+    <i class="bi bi-person-badge me-2 fs-4"></i>
+    <div>
+        <strong>Client :</strong> {{ clientInfo.raison_sociale ?? 'N/A' }}
+        {% if clientInfo.villep %} — {{ clientInfo.villep }}{% endif %}
+        {% if clientInfo.cpostalp %} ({{ clientInfo.cpostalp }}){% endif %}
+        <br>
+        <small class="text-muted">
+            id_contact: {{ dto.idContact }} | contact_id: {{ dto.contactId }}
+        </small>
+    </div>
+</div>
+{% endif %}
+
+{{ form_start(form, {'attr': {'novalidate': 'novalidate', 'enctype': 'multipart/form-data'}}) }}
+
+{# Hidden fields #}
+{{ form_widget(form.idContact) }}
+{{ form_widget(form.contactId) }}
+
+{# ═══════════════════ INFORMATIONS GÉNÉRALES ═══════════════════ #}
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <i class="bi bi-file-earmark-text"></i> Informations générales
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                {{ form_row(form.numeroContrat) }}
+            </div>
+            <div class="col-md-4">
+                {{ form_row(form.dateSignature) }}
+            </div>
+            <div class="col-md-4">
+                {{ form_row(form.duree) }}
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-md-4">
+                {{ form_row(form.dateDebutContrat) }}
+            </div>
+            <div class="col-md-4">
+                {{ form_row(form.dateFinContrat) }}
+            </div>
+            <div class="col-md-4 d-flex align-items-end pb-3">
+                {{ form_row(form.isTaciteReconduction) }}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ═══════════════════ FINANCIER ═══════════════════ #}
+<div class="card mb-4">
+    <div class="card-header bg-success text-white">
+        <i class="bi bi-currency-euro"></i> Financier
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                {{ form_row(form.valorisation) }}
+            </div>
+            <div class="col-md-4">
+                {{ form_row(form.modeRevalorisation) }}
+            </div>
+            <div class="col-md-4">
+                {{ form_row(form.tauxRevalorisation) }}
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-md-4">
+                {{ form_row(form.montantAnnuelHt) }}
+            </div>
+        </div>
+
+        <hr>
+        <h6 class="text-muted mb-3">Montants par type de visite</h6>
+        <div class="row g-3">
+            <div class="col-md-4 col-lg-2">
+                {{ form_row(form.montantVisiteCEA) }}
+            </div>
+            <div class="col-md-4 col-lg-2">
+                {{ form_row(form.montantVisiteCE1) }}
+            </div>
+            <div class="col-md-4 col-lg-2">
+                {{ form_row(form.montantVisiteCE2) }}
+            </div>
+            <div class="col-md-4 col-lg-2">
+                {{ form_row(form.montantVisiteCE3) }}
+            </div>
+            <div class="col-md-4 col-lg-2">
+                {{ form_row(form.montantVisiteCE4) }}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ═══════════════════ PARC & PLANIFICATION ═══════════════════ #}
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <i class="bi bi-tools"></i> Parc & Planification
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3">
+                {{ form_row(form.nombreEquipement) }}
+            </div>
+            <div class="col-md-3">
+                {{ form_row(form.nombreVisite) }}
+            </div>
+            <div class="col-md-3">
+                {{ form_row(form.datePrevisionnelle1) }}
+            </div>
+            <div class="col-md-3">
+                {{ form_row(form.datePrevisionnelle2) }}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ═══════════════════ DOCUMENTS ═══════════════════ #}
+<div class="card mb-4">
+    <div class="card-header bg-warning text-dark">
+        <i class="bi bi-file-earmark-pdf"></i> Documents
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                {{ form_row(form.contratPdfFile) }}
+                <small class="form-text text-muted">
+                    Format PDF uniquement — 10 Mo max. Le PDF pourra aussi être ajouté plus tard.
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ═══════════════════ NOTES ═══════════════════ #}
+<div class="card mb-4">
+    <div class="card-header bg-secondary text-white">
+        <i class="bi bi-journal-text"></i> Notes
+    </div>
+    <div class="card-body">
+        {{ form_row(form.notes) }}
+    </div>
+</div>
+
+{# ═══════════════════ BOUTONS ═══════════════════ #}
+<div class="d-flex justify-content-between mt-4 mb-5">
+    <a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}" 
+       class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Retour à la liste
+    </a>
+    <div>
+        <button type="submit" name="action" value="save_and_show" class="btn btn-primary">
+            <i class="bi bi-check-lg"></i> Enregistrer le contrat
+        </button>
+        <button type="submit" name="action" value="save_and_equipements" class="btn btn-success ms-2">
+            <i class="bi bi-tools"></i> Enregistrer et gérer les équipements
+        </button>
+    </div>
+</div>
+
+{{ form_end(form) }}

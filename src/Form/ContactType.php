@@ -30,9 +30,10 @@ class ContactType extends AbstractType
             ->add('raisonSociale', TextType::class, [
                 'label'    => 'Raison sociale *',
                 'attr'     => [
-                    'placeholder' => 'Ex : MONDIAL RELAY MONTPELLIER',
+                    'placeholder' => 'Ex : CC Bièvre',
                     'class'       => 'form-control',
                     'autofocus'   => true,
+                    'help' => 'Obligatoire — Mettre le même nom que Gestan',
                 ],
                 'required' => true,
             ])
@@ -55,21 +56,22 @@ class ContactType extends AbstractType
             ->add('idSociete', TextType::class, [
                 'label'    => 'ID Société',
                 'attr'     => [
-                    'placeholder' => 'Identifiant société (optionnel)',
+                    'placeholder' => 'Identifiant société (requis)',
                     'class'       => 'form-control',
                 ],
-                'required' => false,
+                'required' => true,
             ])
 
             // ── Identifiant Kizeo ────────────────────────
             ->add('idContact', TextType::class, [
-                'label'    => 'ID Contact (Kizeo)',
+                'label' => 'Identifiant Kizeo (id_contact)',
                 'attr'     => [
-                    'placeholder' => 'Ex : MR-MPL-001',
+                    'placeholder' => 'Ex : 1234',
                     'class'       => 'form-control',
+                    'maxlength'   => 4,
                 ],
-                'help'     => 'Identifiant utilisé pour la synchronisation avec Kizeo Forms.',
-                'required' => false,
+                'required' => true,
+                'help' => 'Obligatoire — fait le lien avec la liste équipements Kizeo.',
             ])
 
             // ── Adresse ──────────────────────────────────
@@ -92,10 +94,10 @@ class ContactType extends AbstractType
             ->add('cpostalp', TextType::class, [
                 'label'    => 'Code postal *',
                 'attr'     => [
-                    'placeholder' => 'Ex : 34000',
                     'class'       => 'form-control',
                     'maxlength'   => 5,
                     'inputmode'   => 'numeric',
+                    'help' => 'Obligatoire — Le même code postal du client sur Gestan',
                 ],
                 'required' => true,
             ])

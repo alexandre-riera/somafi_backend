@@ -35,6 +35,8 @@ class ContactDTO
     // ──────────────────────────────────────────────
 
     #[Assert\Length(max: 255, maxMessage: 'L\'identifiant contact ne peut pas dépasser {{ limit }} caractères.')]
+    // APRÈS (Phase 2.3) — id_contact devient obligatoire
+    #[Assert\NotBlank(message: 'L\'identifiant client (id_contact) est obligatoire.')]
     public ?string $idContact = null;
 
     // ──────────────────────────────────────────────

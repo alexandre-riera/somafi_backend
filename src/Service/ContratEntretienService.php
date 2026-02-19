@@ -6,6 +6,7 @@ use App\Entity\User;
 use App\Repository\AgencyRepository;
 use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
+use App\DTO\ContratEntretienDTO;
 
 /**
  * Service métier pour la gestion des contrats d'entretien.
@@ -408,5 +409,123 @@ class ContratEntretienService
             'SELECT * FROM agencies WHERE code = :code',
             ['code' => strtoupper($agencyCode)]
         );
+    }
+
+    /**
+     * Récupère le prochain numéro de contrat disponible sur une agence.
+     * Retourne MAX(numero_contrat) + 1, ou 1 si aucun contrat n'existe.
+     */
+    public function getNextNumeroContrat(string $agencyCode): int
+    {
+        $table = $this->getContratTableName($agencyCode);
+
+        $result = $this->connection->fetchOne(
+            "SELECT COALESCE(MAX(numero_contrat), 0) + 1 FROM {$table}"
+        );
+
+        return (int) $result;
+    }
+
+    /**
+     * Insère un nouveau contrat dans contrat_sXX.
+     *
+     * @param string $agencyCode Code agence (ex: S100)
+     * @param ContratEntretienDTO $dto Données du formulaire
+     * @param int|null $userId ID de l'utilisateur créateur
+     * @param string|null $pdfPath Chemin relatif du PDF (si uploadé)
+     * @return int L'ID du contrat créé (lastInsertId)
+     */
+    public function insertContrat(
+        string $agencyCode,
+        ContratEntretienDTO $dto,
+        ?int $userId = null,
+        ?string $pdfPath = null,
+    ): int {
+        $table = $this->getContratTableName($agencyCode);
+
+        // Auto-générer le numéro si non renseigné
+        if (empty($dto->numeroContrat)) {
+            $dto->numeroContrat = $this->getNextNumeroContrat($agencyCode);
+        }
+
+        $data = $dto->toArray();
+
+        // Champs gérés par le service (pas le DTO)
+        if ($userId) {
+            $data['created_by'] = $userId;
+        }
+        if ($pdfPath) {
+            $data['contrat_pdf_path'] = $pdfPath;
+        }
+
+        try {
+            $this->connection->insert($table, $data);
+            $lastId = (int) $this->connection->lastInsertId();
+
+            $this->logger->info('[ContratEntretien] Contrat créé.', [
+                'agency' => $agencyCode,
+                'contrat_id' => $lastId,
+                'numero_contrat' => $dto->numeroContrat,
+                'id_contact' => $dto->idContact,
+            ]);
+
+            return $lastId;
+        } catch (\Exception $e) {
+            $this->logger->error('[ContratEntretien] Échec insertion contrat.', [
+                'agency' => $agencyCode,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Met à jour un contrat existant dans contrat_sXX.
+     *
+     * @param string              $agencyCode Code agence (ex: S100)
+     * @param int                 $id         ID du contrat
+     * @param ContratEntretienDTO $dto        Données du formulaire
+     * @param string|null         $pdfPath    Nouveau chemin PDF (null = pas de changement)
+     * @return bool               true si au moins 1 ligne modifiée
+     */
+    public function updateContrat(
+        string $agencyCode,
+        int $id,
+        ContratEntretienDTO $dto,
+        ?string $pdfPath = null,
+    ): bool {
+        $table = $this->getContratTableName($agencyCode);
+
+        $data = $dto->toArray();
+
+        // Ne pas écraser le contact_id / id_contact (non modifiables en édition)
+        unset($data['contact_id'], $data['id_contact'], $data['statut'], $data['date_resiliation']);
+
+        // Ajouter le PDF uniquement si un nouveau fichier a été uploadé
+        if ($pdfPath !== null) {
+            $data['contrat_pdf_path'] = $pdfPath;
+        }
+
+        // Timestamp de mise à jour
+        $data['updated_at'] = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+
+        try {
+            $affected = $this->connection->update($table, $data, ['id' => $id]);
+
+            $this->logger->info('[ContratEntretien] Contrat mis à jour.', [
+                'agency'     => $agencyCode,
+                'contrat_id' => $id,
+                'fields'     => array_keys($data),
+            ]);
+
+            return $affected > 0;
+        } catch (\Exception $e) {
+            $this->logger->error('[ContratEntretien] Échec mise à jour contrat.', [
+                'agency'     => $agencyCode,
+                'contrat_id' => $id,
+                'error'      => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
 }
