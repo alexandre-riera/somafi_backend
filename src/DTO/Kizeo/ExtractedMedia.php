@@ -39,6 +39,7 @@ final class ExtractedMedia
         public readonly ?string $fieldName = null,
         public readonly bool $isContract = true,
         public readonly ?int $equipmentIndex = null,
+        public readonly ?string $visite = null,
     ) {
     }
 

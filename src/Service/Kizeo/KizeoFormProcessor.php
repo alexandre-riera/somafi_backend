@@ -981,7 +981,7 @@ class KizeoFormProcessor
         // Générer le numéro d'équipement basé sur le type déduit
         // Utilise le OffContractNumberGenerator pour obtenir le prochain numéro
         // disponible pour ce type chez ce client (ex: RID28 si RID27 existe déjà)
-        $numero = $this->numberGenerator->getNextNumber(
+        $numero = $this->numberGenerator->generate(
             $agencyCode,
             $idContact,
             $typePrefix

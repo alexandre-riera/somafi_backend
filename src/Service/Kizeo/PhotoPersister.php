@@ -373,12 +373,19 @@ class PhotoPersister
      */
     private function resolveVisite(ExtractedFormData $extractedData): string
     {
+        // Priorité 1 : visite déterminée au niveau du DTO
+        if (!empty($extractedData->visite)) {
+            return $extractedData->visite;
+        }
+        
+        // Priorité 2 : visite depuis un équipement au contrat
         foreach ($extractedData->contractEquipments as $equipment) {
             if ($equipment->hasValidVisite()) {
                 return $equipment->getNormalizedVisite();
             }
         }
-        return 'CE1';
+        
+        return 'CEA'; // fallback CEA (visite unique) plutôt que CE1
     }
 
     /**

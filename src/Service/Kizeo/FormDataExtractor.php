@@ -128,6 +128,8 @@ class FormDataExtractor
         // 4. Extraire les médias (photos) — scan dynamique de tous les champs type=photo
         $medias = $this->extractMedias($fields, $contractEquipments, $offContractEquipments);
 
+        $visite = $this->determineVisite($contractEquipments);
+
         $extracted = new ExtractedFormData(
             formId: $formId,
             dataId: $dataId,
@@ -136,6 +138,7 @@ class FormDataExtractor
             raisonSociale: $raisonSociale,
             dateVisite: $dateVisite,
             annee: $annee,
+            visite: $visite,
             trigramme: $trigramme,
             contractEquipments: $contractEquipments,
             offContractEquipments: $offContractEquipments,
@@ -145,6 +148,19 @@ class FormDataExtractor
         $this->kizeoLogger->info('Données CR extraites', $extracted->toLogContext());
 
         return $extracted;
+    }
+
+    /**
+     * Détermine la visite principale depuis les équipements au contrat
+     */
+    private function determineVisite(array $contractEquipments): string
+    {
+        foreach ($contractEquipments as $equipment) {
+            if ($equipment->hasValidVisite()) {
+                return $equipment->getNormalizedVisite();
+            }
+        }
+        return 'CEA'; // Fallback CEA (visite unique annuelle)
     }
 
     /**

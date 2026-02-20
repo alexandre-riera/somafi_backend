@@ -36,6 +36,7 @@ final class ExtractedFormData
         public readonly ?string $raisonSociale,
         public readonly ?\DateTimeInterface $dateVisite,
         public readonly ?string $annee,
+        public readonly ?string $visite,
         public readonly ?string $trigramme,
         public readonly array $contractEquipments = [],
         public readonly array $offContractEquipments = [],

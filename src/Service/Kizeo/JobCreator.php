@@ -167,7 +167,7 @@ class JobCreator
         ExtractedFormData $formData,
         string $agencyCode,
         ExtractedMedia $media,
-        array $generatedNumbers
+        array $generatedNumbers,
     ): bool {
         // Vérifier si le job existe déjà
         if ($this->jobRepository->photoJobExists(
@@ -198,7 +198,7 @@ class JobCreator
         }
 
         // Déterminer la visite
-        $visite = $this->determineVisiteFromEquipments($formData);
+         $visite = $media->visite ?? $this->determineVisiteFromEquipments($formData);
 
         $job = KizeoJob::createPhotoJob(
             agencyCode: $agencyCode,
@@ -269,15 +269,19 @@ class JobCreator
      */
     private function determineVisiteFromEquipments(ExtractedFormData $formData): string
     {
-        // Chercher dans les équipements au contrat
+        // Priorité 1 : visite au niveau du DTO
+        if (!empty($formData->visite)) {
+            return $formData->visite;
+        }
+        
+        // Priorité 2 : depuis les équipements
         foreach ($formData->contractEquipments as $equipment) {
             if ($equipment->hasValidVisite()) {
                 return $equipment->getNormalizedVisite();
             }
         }
-
-        // Défaut
-        return 'CE1';
+        
+        return 'CEA';
     }
 
     /**
