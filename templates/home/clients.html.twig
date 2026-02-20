@@ -155,62 +155,59 @@
 {% block javascripts %}
 {{ parent() }}
 <script>
-    document.addEventListener('turbo:load', function() {
-        const searchInput = document.getElementById('searchInput');
-        const btnClear = document.getElementById('btnClearSearch');
-        const searchInfo = document.getElementById('searchInfo');
-        const filteredCount = document.getElementById('filteredCount');
-        const searchTerm = document.getElementById('searchTerm');
-        const noResultsAlert = document.getElementById('noResultsAlert');
-        const rows = document.querySelectorAll('.client-row');
-        const clientCount = document.getElementById('clientCount');
-        const totalClients = rows.length;
+(function() {
+    const searchInput = document.getElementById('searchInput');
+    if (!searchInput) return;
 
-        // Recherche dynamique
-        searchInput.addEventListener('input', function() {
-            const query = this.value.trim().toLowerCase();
-            let visible = 0;
+    const btnClear = document.getElementById('btnClearSearch');
+    const searchInfo = document.getElementById('searchInfo');
+    const filteredCount = document.getElementById('filteredCount');
+    const searchTerm = document.getElementById('searchTerm');
+    const noResultsAlert = document.getElementById('noResultsAlert');
+    const rows = document.querySelectorAll('.client-row');
+    const clientCount = document.getElementById('clientCount');
+    const totalClients = rows.length;
 
-            rows.forEach(row => {
-                const data = row.dataset.search || '';
-                const match = !query || data.includes(query);
-                row.style.display = match ? '' : 'none';
-                if (match) visible++;
-            });
+    searchInput.addEventListener('input', function() {
+        const query = this.value.trim().toLowerCase();
+        let visible = 0;
 
-            // Mise à jour de l'UI
-            if (query) {
-                btnClear.style.display = '';
-                searchInfo.style.display = '';
-                filteredCount.textContent = visible;
-                searchTerm.textContent = this.value.trim();
-                clientCount.textContent = visible;
-            } else {
-                btnClear.style.display = 'none';
-                searchInfo.style.display = 'none';
-                clientCount.textContent = totalClients;
-            }
-
-            // Message "aucun résultat"
-            if (noResultsAlert) {
-                noResultsAlert.style.display = (query && visible === 0) ? '' : 'none';
-            }
-        });
-
-        // Bouton effacer
-        btnClear.addEventListener('click', function() {
-            searchInput.value = '';
-            searchInput.dispatchEvent(new Event('input'));
-            searchInput.focus();
-        });
-
-        // Rendre les lignes cliquables
         rows.forEach(row => {
-            row.addEventListener('click', function(e) {
-                if (e.target.closest('a, button')) return;
-                window.location.href = this.dataset.href;
-            });
+            const data = row.dataset.search || '';
+            const match = !query || data.includes(query);
+            row.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+
+        if (query) {
+            btnClear.style.display = '';
+            searchInfo.style.display = '';
+            filteredCount.textContent = visible;
+            searchTerm.textContent = this.value.trim();
+            clientCount.textContent = visible;
+        } else {
+            btnClear.style.display = 'none';
+            searchInfo.style.display = 'none';
+            clientCount.textContent = totalClients;
+        }
+
+        if (noResultsAlert) {
+            noResultsAlert.style.display = (query && visible === 0) ? '' : 'none';
+        }
+    });
+
+    btnClear.addEventListener('click', function() {
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input'));
+        searchInput.focus();
+    });
+
+    rows.forEach(row => {
+        row.addEventListener('click', function(e) {
+            if (e.target.closest('a, button')) return;
+            window.location.href = this.dataset.href;
         });
     });
+})();
 </script>
 {% endblock %}

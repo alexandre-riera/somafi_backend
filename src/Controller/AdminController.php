@@ -2,8 +2,9 @@
 
 namespace App\Controller;
 
-use App\Entity\User;
 use App\Entity\ContratCadre;
+use App\Entity\User;
+use App\Entity\UserContratCadre;
 use App\Repository\UserRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -16,40 +17,34 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 /**
  * Contrôleur d'administration - Gestion des utilisateurs
- * 
- * Accessible uniquement par ROLE_ADMIN (somafi_admin)
- * Phase B du plan d'implémentation
+ *
+ * Accessible uniquement par ROLE_ADMIN
+ * La gestion des droits CC (admin / user) passe désormais par la table
+ * user_contrat_cadre — plus de ROLE_CLIENT_CC, ROLE_ADMIN_CC,
+ * ni de rôles {SLUG}_ADMIN / {SLUG}_USER dans le JSON roles.
  */
 #[Route('/admin')]
 #[IsGranted('ROLE_ADMIN')]
 class AdminController extends AbstractController
 {
     /**
-     * Rôles de base (statiques) pour l'attribution
-     * Groupés par catégorie pour l'affichage dans le formulaire
-     * 
-     * Les rôles spécifiques aux contrats cadre ({SLUG}_ADMIN, {SLUG}_USER)
-     * sont générés dynamiquement via getAvailableRoles()
+     * Rôles disponibles dans le formulaire utilisateur.
+     * SUPPRIMÉS : ROLE_CLIENT_CC, ROLE_ADMIN_CC, et tous les {SLUG}_ADMIN / {SLUG}_USER.
+     * Les droits CC sont gérés via les cards CC Admin / CC User du formulaire.
      */
     private const BASE_ROLES = [
         'Global' => [
-            'ROLE_ADMIN' => 'Administrateur global',
+            'ROLE_ADMIN'        => 'Administrateur global',
             'ROLE_ADMIN_AGENCE' => 'Admin agence',
-            'ROLE_USER_AGENCE' => 'Utilisateur agence',
+            'ROLE_USER_AGENCE'  => 'Utilisateur agence',
         ],
         'Supplémentaire' => [
-            'ROLE_EDIT' => 'Modification équipements',
-            'ROLE_DELETE' => 'Archivage équipements',
-        ],
-        'Contrat Cadre' => [
-            'ROLE_CLIENT_CC' => 'Client contrat cadre (lecture)',
-            'ROLE_ADMIN_CC' => 'Admin contrat cadre (employé SOMAFI)',
+            'ROLE_EDIT'                           => 'Modification équipements',
+            'ROLE_DELETE'                         => 'Archivage équipements',
+            'ROLE_GESTIONNAIRE_CONTRAT_ENTRETIEN' => 'Gestionnaire contrats entretien',
         ],
     ];
 
-    /**
-     * Liste des 13 agences SOMAFI
-     */
     private const AGENCIES = [
         'S10', 'S40', 'S50', 'S60', 'S70', 'S80',
         'S100', 'S120', 'S130', 'S140', 'S150', 'S160', 'S170',
@@ -58,94 +53,56 @@ class AdminController extends AbstractController
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly UserPasswordHasherInterface $passwordHasher,
-    ) {
-    }
+    ) {}
 
     // =========================================================================
-    // Rôles dynamiques - Contrats Cadre
+    // Helpers privés
     // =========================================================================
 
     /**
-     * Construit la liste complète des rôles disponibles
-     * 
-     * Fusionne les rôles de base (statiques) avec les rôles CC générés
-     * dynamiquement depuis la table contrats_cadre.
-     * 
-     * Pour chaque CC actif (ex: nom="STEF", slug="stef") :
-     *   - Groupe "CC STEF" avec STEF_ADMIN et STEF_USER
-     * 
-     * Pour un CC avec tiret (ex: slug="mondial-relay") :
-     *   - Groupe "CC MONDIAL RELAY" avec MONDIAL-RELAY_ADMIN et MONDIAL-RELAY_USER
-     * 
-     * @return array<string, array<string, string>> Rôles groupés par catégorie
+     * Retourne les rôles disponibles (statiques uniquement, plus de génération dynamique CC).
+     *
+     * @return array<string, array<string, string>>
      */
     private function getAvailableRoles(): array
     {
-        $roles = self::BASE_ROLES;
-
-        $contratsCadre = $this->em->getRepository(ContratCadre::class)
-            ->findBy(['isActive' => true], ['nom' => 'ASC']);
-
-        foreach ($contratsCadre as $cc) {
-            $slug = strtoupper($cc->getSlug()); // ex: "stef", "mondial-relay" → "STEF", "MONDIAL-RELAY"
-            $nom = $cc->getNom();                // ex: "STEF", "MONDIAL RELAY"
-
-            $groupLabel = 'CC ' . $nom;
-
-            $roles[$groupLabel] = [
-                $slug . '_ADMIN' => 'Admin ' . $nom,
-                $slug . '_USER'  => 'Utilisateur ' . $nom,
-            ];
-        }
-
-        return $roles;
+        return self::BASE_ROLES;
     }
 
     /**
-     * Extrait la liste plate de tous les rôles autorisés (pour whitelist)
-     * 
+     * Liste plate des rôles autorisés pour la whitelist POST.
+     *
      * @return string[]
      */
     private function getAllAllowedRoles(): array
     {
         $allRoles = [];
-        foreach ($this->getAvailableRoles() as $group) {
+        foreach (self::BASE_ROLES as $group) {
             $allRoles = array_merge($allRoles, array_keys($group));
         }
         return $allRoles;
     }
 
     /**
-     * Vérifie si un tableau de rôles contient un rôle CC spécifique ({SLUG}_ADMIN ou {SLUG}_USER)
-     * 
-     * Utile pour savoir si on doit lier l'utilisateur à un contrat cadre
-     * même sans ROLE_CLIENT_CC ou ROLE_ADMIN_CC explicite.
-     * 
-     * @param string[] $roles
-     * @return bool
+     * Charge tous les ContratCadre actifs indexés par id.
+     * Utilisé par handleUserForm pour éviter N requêtes.
+     *
+     * @return array<int, ContratCadre>
      */
-    private function hasCcSpecificRole(array $roles): bool
+    private function loadAllCcById(): array
     {
-        // Rôles CC génériques (pas spécifiques à un CC)
-        $genericCcRoles = ['ROLE_CLIENT_CC', 'ROLE_ADMIN_CC'];
+        $ccs = $this->em->getRepository(ContratCadre::class)
+            ->findBy(['isActive' => true], ['nom' => 'ASC']);
 
-        foreach ($roles as $role) {
-            // Ignorer les rôles génériques CC et les ROLE_* classiques
-            if (in_array($role, $genericCcRoles)) {
-                continue;
-            }
-
-            // Pattern: {SLUG}_ADMIN ou {SLUG}_USER (sans préfixe ROLE_)
-            if (preg_match('/^(.+)_(ADMIN|USER)$/', $role) && !str_starts_with($role, 'ROLE_')) {
-                return true;
-            }
+        $indexed = [];
+        foreach ($ccs as $cc) {
+            $indexed[$cc->getId()] = $cc;
         }
-
-        return false;
+        return $indexed;
     }
 
     // =========================================================================
-    // B.1 + B.2 — Liste des utilisateurs
+    // B.1 — Liste des utilisateurs
     // =========================================================================
 
     #[Route('/users', name: 'admin_users', methods: ['GET'])]
@@ -153,13 +110,11 @@ class AdminController extends AbstractController
     {
         $repo = $this->em->getRepository(User::class);
 
-        // Filtres
-        $filterRole = $request->query->get('role', '');
+        $filterRole   = $request->query->get('role', '');
         $filterAgency = $request->query->get('agency', '');
-        $filterStatus = $request->query->get('status', ''); // active, inactive
-        $search = $request->query->get('q', '');
+        $filterStatus = $request->query->get('status', '');
+        $search       = $request->query->get('q', '');
 
-        // Construction de la requête
         $qb = $repo->createQueryBuilder('u')
             ->orderBy('u.nom', 'ASC')
             ->addOrderBy('u.prenom', 'ASC');
@@ -171,13 +126,11 @@ class AdminController extends AbstractController
         }
 
         if (!empty($filterRole)) {
-            // JSON_CONTAINS pour le champ roles (JSON)
             $qb->andWhere('u.roles LIKE :role')
                ->setParameter('role', '%"' . $filterRole . '"%');
         }
 
         if (!empty($filterAgency)) {
-            // JSON_CONTAINS pour le champ agencies (JSON)
             $qb->andWhere('u.agencies LIKE :agency')
                ->setParameter('agency', '%"' . $filterAgency . '"%');
         }
@@ -189,20 +142,19 @@ class AdminController extends AbstractController
 
         $users = $qb->getQuery()->getResult();
 
-        // Charger les contrats cadre pour le dropdown du filtre
         $contratsCadre = $this->em->getRepository(ContratCadre::class)
             ->findBy(['isActive' => true], ['nom' => 'ASC']);
 
         return $this->render('admin/users/index.html.twig', [
-            'users' => $users,
+            'users'           => $users,
             'available_roles' => $this->getAvailableRoles(),
-            'agencies' => self::AGENCIES,
-            'contrats_cadre' => $contratsCadre,
-            'filter_role' => $filterRole,
-            'filter_agency' => $filterAgency,
-            'filter_status' => $filterStatus,
-            'search' => $search,
-            'total_users' => count($users),
+            'agencies'        => self::AGENCIES,
+            'contrats_cadre'  => $contratsCadre,
+            'filter_role'     => $filterRole,
+            'filter_agency'   => $filterAgency,
+            'filter_status'   => $filterStatus,
+            'search'          => $search,
+            'total_users'     => count($users),
         ]);
     }
 
@@ -217,17 +169,13 @@ class AdminController extends AbstractController
             return $this->handleUserForm($request, $validator, new User(), true);
         }
 
-        // Charger les contrats cadre
-        $contratsCadre = $this->em->getRepository(ContratCadre::class)
-            ->findBy(['isActive' => true], ['nom' => 'ASC']);
-
         return $this->render('admin/users/form.html.twig', [
-            'user' => null,
-            'is_edit' => false,
+            'user'            => null,
+            'is_edit'         => false,
             'available_roles' => $this->getAvailableRoles(),
-            'agencies' => self::AGENCIES,
-            'contrats_cadre' => $contratsCadre,
-            'errors' => [],
+            'agencies'        => self::AGENCIES,
+            'contrats_cadre'  => array_values($this->loadAllCcById()),
+            'errors'          => [],
         ]);
     }
 
@@ -248,16 +196,13 @@ class AdminController extends AbstractController
             return $this->handleUserForm($request, $validator, $user, false);
         }
 
-        $contratsCadre = $this->em->getRepository(ContratCadre::class)
-            ->findBy(['isActive' => true], ['nom' => 'ASC']);
-
         return $this->render('admin/users/form.html.twig', [
-            'user' => $user,
-            'is_edit' => true,
+            'user'            => $user,
+            'is_edit'         => true,
             'available_roles' => $this->getAvailableRoles(),
-            'agencies' => self::AGENCIES,
-            'contrats_cadre' => $contratsCadre,
-            'errors' => [],
+            'agencies'        => self::AGENCIES,
+            'contrats_cadre'  => array_values($this->loadAllCcById()),
+            'errors'          => [],
         ]);
     }
 
@@ -281,7 +226,7 @@ class AdminController extends AbstractController
             if (!$this->isCsrfTokenValid('user_password_' . $id, $token)) {
                 $errors[] = 'Token CSRF invalide.';
             } else {
-                $newPassword = $request->request->get('new_password', '');
+                $newPassword     = $request->request->get('new_password', '');
                 $confirmPassword = $request->request->get('confirm_password', '');
 
                 if (strlen($newPassword) < 8) {
@@ -309,7 +254,7 @@ class AdminController extends AbstractController
         }
 
         return $this->render('admin/users/password.html.twig', [
-            'user' => $user,
+            'user'   => $user,
             'errors' => $errors,
         ]);
     }
@@ -327,14 +272,12 @@ class AdminController extends AbstractController
             throw $this->createNotFoundException('Utilisateur non trouvé');
         }
 
-        // Protection CSRF
         $token = $request->request->get('_token');
         if (!$this->isCsrfTokenValid('user_toggle_' . $id, $token)) {
             $this->addFlash('error', 'Token CSRF invalide.');
             return $this->redirectToRoute('admin_users');
         }
 
-        // Empêcher la désactivation de son propre compte
         if ($user->getUserIdentifier() === $this->getUser()->getUserIdentifier()) {
             $this->addFlash('error', 'Vous ne pouvez pas désactiver votre propre compte.');
             return $this->redirectToRoute('admin_users');
@@ -344,11 +287,10 @@ class AdminController extends AbstractController
         $user->setUpdatedAt(new \DateTime());
         $this->em->flush();
 
-        $status = $user->isActive() ? 'activé' : 'désactivé';
         $this->addFlash('success', sprintf(
             'Utilisateur %s %s.',
             $user->getFullName(),
-            $status
+            $user->isActive() ? 'activé' : 'désactivé'
         ));
 
         return $this->redirectToRoute('admin_users');
@@ -366,28 +308,31 @@ class AdminController extends AbstractController
     ): Response {
         $errors = [];
 
-        // Protection CSRF
+        // --- CSRF ---
         $tokenId = $isNew ? 'user_new' : 'user_edit_' . $user->getId();
-        $token = $request->request->get('_token');
-        if (!$this->isCsrfTokenValid($tokenId, $token)) {
+        if (!$this->isCsrfTokenValid($tokenId, $request->request->get('_token'))) {
             $errors[] = 'Token CSRF invalide.';
         }
 
-        // Récupération des données
-        $email = trim($request->request->get('email', ''));
-        $nom = trim($request->request->get('nom', ''));
-        $prenom = trim($request->request->get('prenom', ''));
-        $roles = $request->request->all('roles') ?: [];
+        // --- Données de base ---
+        $email    = trim($request->request->get('email', ''));
+        $nom      = trim($request->request->get('nom', ''));
+        $prenom   = trim($request->request->get('prenom', ''));
+        $roles    = $request->request->all('roles') ?: [];
         $agencies = $request->request->all('agencies') ?: [];
-        $contratCadreId = $request->request->get('contrat_cadre_id', '');
         $isActive = $request->request->getBoolean('is_active', true);
 
-        // Validation email
+        // --- Données CC (nouvelles) ---
+        // cc_admin[] : IDs des CCs où l'utilisateur est admin SOMAFI
+        // cc_user[]  : IDs des CCs où l'utilisateur est client (lecture)
+        $ccAdminIds = array_map('intval', $request->request->all('cc_admin') ?: []);
+        $ccUserIds  = array_map('intval', $request->request->all('cc_user')  ?: []);
+
+        // --- Validations ---
         if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $errors[] = 'Email invalide.';
         }
 
-        // Vérifier unicité email (sauf pour l'utilisateur en cours d'édition)
         if (!empty($email)) {
             $existing = $this->em->getRepository(User::class)->findOneBy(['email' => $email]);
             if ($existing && (!$user->getId() || $existing->getId() !== $user->getId())) {
@@ -395,7 +340,6 @@ class AdminController extends AbstractController
             }
         }
 
-        // Validation nom/prénom
         if (empty($nom)) {
             $errors[] = 'Le nom est obligatoire.';
         }
@@ -403,16 +347,17 @@ class AdminController extends AbstractController
             $errors[] = 'Le prénom est obligatoire.';
         }
 
-        // Validation rôles (whitelist dynamique incluant les rôles CC)
-        $roles = array_intersect($roles, $this->getAllAllowedRoles());
+        // Whitelist des rôles (uniquement BASE_ROLES — plus de rôles CC dans le JSON)
+        $roles = array_values(array_intersect($roles, $this->getAllAllowedRoles()));
         if (empty($roles)) {
             $errors[] = 'Au moins un rôle est requis.';
         }
 
-        // Validation agences (whitelist)
-        $agencies = array_intersect($agencies, self::AGENCIES);
+        // Whitelist des agences
+        $agencies = array_values(array_intersect($agencies, self::AGENCIES));
 
-        // Validation mot de passe (uniquement à la création)
+        // Mot de passe (création uniquement)
+        $password = '';
         if ($isNew) {
             $password = $request->request->get('password', '');
             if (strlen($password) < 8) {
@@ -420,50 +365,46 @@ class AdminController extends AbstractController
             }
         }
 
-        // Contrat cadre — lié si l'utilisateur a un rôle CC (générique ou spécifique)
-        $contratCadre = null;
-        $needsCc = in_array('ROLE_CLIENT_CC', $roles) 
-                || in_array('ROLE_ADMIN_CC', $roles) 
-                || $this->hasCcSpecificRole($roles);
+        // --- Chargement des CCs en une seule requête ---
+        $allCcById = $this->loadAllCcById();
 
-        if ($needsCc && !empty($contratCadreId)) {
-            $contratCadre = $this->em->getRepository(ContratCadre::class)
-                ->find((int) $contratCadreId);
-        }
-
+        // --- Retour formulaire si erreurs ---
         if (!empty($errors)) {
-            $contratsCadre = $this->em->getRepository(ContratCadre::class)
-                ->findBy(['isActive' => true], ['nom' => 'ASC']);
-
-            // Pré-remplir les valeurs du formulaire pour ne pas les perdre
-            $formUser = $isNew ? new User() : $user;
+            // Pré-remplir l'objet pour conserver les saisies (édition : on ne touche pas l'entité en BDD)
+            $formUser = $isNew ? new User() : clone $user;
             $formUser->setEmail($email);
             $formUser->setNom($nom);
             $formUser->setPrenom($prenom);
             $formUser->setRoles($roles);
-            $formUser->setAgencies($agencies);
+            $formUser->setAgencies($agencies ?: null);
             $formUser->setIsActive($isActive);
-            $formUser->setContratCadre($contratCadre);
+            // On NE sync pas les CC sur un clone/new : le template relira cc_admin[]/cc_user[]
+            // depuis les checkboxes cochées (Twig regarde user.userContratCadres pour le mode edit)
 
             return $this->render('admin/users/form.html.twig', [
-                'user' => $isNew ? $formUser : $user,
-                'is_edit' => !$isNew,
+                'user'            => $isNew ? $formUser : $user,
+                'is_edit'         => !$isNew,
                 'available_roles' => $this->getAvailableRoles(),
-                'agencies' => self::AGENCIES,
-                'contrats_cadre' => $contratsCadre,
-                'errors' => $errors,
+                'agencies'        => self::AGENCIES,
+                'contrats_cadre'  => array_values($allCcById),
+                'errors'          => $errors,
+                // On repasse les IDs cochés pour que Twig puisse re-cocher les cases après erreur
+                'cc_admin_ids'    => $ccAdminIds,
+                'cc_user_ids'     => $ccUserIds,
             ]);
         }
 
-        // Appliquer les modifications
+        // --- Application des modifications ---
         $user->setEmail($email);
         $user->setNom($nom);
         $user->setPrenom($prenom);
         $user->setRoles($roles);
-        $user->setAgencies(!empty($agencies) ? array_values($agencies) : null);
+        $user->setAgencies(!empty($agencies) ? $agencies : null);
         $user->setIsActive($isActive);
-        $user->setContratCadre($contratCadre);
         $user->setUpdatedAt(new \DateTime());
+
+        // Synchronisation des associations CC (vide + recrée proprement)
+        $user->syncContratCadres($ccAdminIds, $ccUserIds, $allCcById);
 
         if ($isNew) {
             $hashedPassword = $this->passwordHasher->hashPassword($user, $password);
@@ -473,11 +414,10 @@ class AdminController extends AbstractController
 
         $this->em->flush();
 
-        $action = $isNew ? 'créé' : 'modifié';
         $this->addFlash('success', sprintf(
             'Utilisateur %s %s avec succès.',
             $user->getFullName(),
-            $action
+            $isNew ? 'créé' : 'modifié'
         ));
 
         return $this->redirectToRoute('admin_users');
