@@ -124,8 +124,10 @@
                                 </li>
                             {% endif %}
                         {% endif %}
-                        {# Menu Contrats Cadre - visible pour ADMIN et CC_ADMIN #}
-                        {% if is_granted('ROLE_CC_ADMIN') or is_granted('ROLE_ADMIN') %}
+                        {# Menu Contrats Cadre
+                             Visible si l'utilisateur a au moins un CC dans contrats_cadre_actifs
+                             (injecté par ContratCadreExtension selon ses droits réels) #}
+                        {% if contrats_cadre_actifs is not empty %}
                             <li class="nav-item dropdown">
                                 <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"  data-turbo="false">
                                     <i class="bi bi-briefcase"></i> Contrats Cadre
@@ -139,9 +141,6 @@
                                             </a>
                                         </li>
                                     {% endfor %}
-                                    {% if contrats_cadre_actifs is empty %}
-                                        <li><span class="dropdown-item text-muted">Aucun contrat cadre</span></li>
-                                    {% endif %}
                                 </ul>
                             </li>
                         {% endif %}
