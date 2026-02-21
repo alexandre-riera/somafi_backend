@@ -349,8 +349,14 @@ class AdminController extends AbstractController
 
         // Whitelist des rôles (uniquement BASE_ROLES — plus de rôles CC dans le JSON)
         $roles = array_values(array_intersect($roles, $this->getAllAllowedRoles()));
-        if (empty($roles)) {
-            $errors[] = 'Au moins un rôle est requis.';
+
+        // Règle de validation :
+        // - Un utilisateur SOMAFI (cc_admin ou rôle global) doit avoir au moins un rôle global.
+        // - Un client externe CC (cc_user uniquement, sans rôle global ni cc_admin) est valide
+        //   sans rôle global : il n'accède qu'au portail CC, pas à l'appli SOMAFI.
+        $isExternalCcUser = empty($roles) && empty($ccAdminIds) && !empty($ccUserIds);
+        if (empty($roles) && !$isExternalCcUser) {
+            $errors[] = 'Au moins un rôle est requis pour un utilisateur SOMAFI.';
         }
 
         // Whitelist des agences
