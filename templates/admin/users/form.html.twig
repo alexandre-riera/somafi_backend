@@ -104,18 +104,33 @@
         font-size: 0.85rem;
     }
 
-    .cc-section {
-        display: none;
-        margin-top: 1rem;
-        padding: 1rem;
-        background: #f0fdf4;
-        border-radius: 6px;
-        border: 1px solid #bbf7d0;
+    .form-card.card-cc-admin h3 { border-bottom-color: #fbbf24; }
+    .form-card.card-cc-user  h3 { border-bottom-color: #34d399; }
+
+    .cc-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
     }
 
-    .cc-section.visible {
-        display: block;
+    .cc-checkbox-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #e9ecef;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.9rem;
     }
+
+    .card-cc-admin .cc-checkbox-item:hover { border-color: #f59e0b; background: #fffbeb; }
+    .card-cc-user  .cc-checkbox-item:hover { border-color: #10b981; background: #f0fdf4; }
+
+    .card-cc-admin .cc-checkbox-item input:checked + span { font-weight: 700; color: #d97706; }
+    .card-cc-user  .cc-checkbox-item input:checked + span { font-weight: 700; color: #059669; }
 
     .error-list {
         background: #fef2f2;
@@ -254,34 +269,77 @@
             </div>
         </div>
 
-        {# ===== Contrat Cadre (conditionnel) ===== #}
-        <div class="form-card">
-            <h3>Contrat Cadre</h3>
-            <div class="cc-section {{ (user and user.contratCadre) ? 'visible' : '' }}" id="ccSection">
-                <label for="contrat_cadre_id" class="form-label">Contrat cadre associé</label>
-                <select class="form-select" id="contrat_cadre_id" name="contrat_cadre_id">
-                    <option value="">— Aucun —</option>
-                    {% for cc in contrats_cadre %}
-                        <option value="{{ cc.id }}" 
-                                {{ user and user.contratCadre and user.contratCadre.id == cc.id ? 'selected' : '' }}>
-                            {{ cc.nom }}
-                        </option>
-                    {% endfor %}
-                </select>
-                <small class="text-muted mt-1 d-block">
-                    Requis si le rôle CLIENT_CC ou ADMIN_CC est sélectionné.
-                </small>
-            </div>
-            <p class="text-muted mb-0" style="font-size: 0.85rem;" id="ccHint">
-                Sélectionne un rôle Contrat Cadre (CLIENT_CC ou ADMIN_CC) pour afficher les options.
+        {# ===== Droits CC Admin (employés SOMAFI gérant 1..N contrats cadres) ===== #}
+        <div class="form-card card-cc-admin">
+            <h3>⚙️ Droits CC Admin <small class="fw-normal text-muted" style="font-size:0.8rem;">(employé SOMAFI)</small></h3>
+            <p class="text-muted" style="font-size: 0.85rem;">
+                Coche les contrats cadres sur lesquels cet utilisateur a un accès administrateur (gestion, supervision).
             </p>
+            {% if contrats_cadre|length > 0 %}
+            <div class="cc-grid" id="ccAdminGrid">
+                {% for cc in contrats_cadre %}
+                <label class="cc-checkbox-item">
+                    <input type="checkbox"
+                           class="form-check-input cc-admin-input"
+                           name="cc_admin[]"
+                           value="{{ cc.id }}"
+                           {{ (
+                               (cc_admin_ids is defined and cc.id in cc_admin_ids)
+                               or
+                               (user and user.userContratCadres is defined and user.userContratCadres|filter(ucc => ucc.contratCadre.id == cc.id and ucc.roleType == 'admin')|length > 0)
+                           ) ? 'checked' : '' }}>
+                    <span>{{ cc.nom }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            <div class="mt-2">
+                <button type="button" class="btn btn-sm btn-outline-warning" id="selectAllCcAdmin">Tout sélectionner</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllCcAdmin">Tout désélectionner</button>
+            </div>
+            {% else %}
+            <p class="text-muted fst-italic mb-0">Aucun contrat cadre disponible.</p>
+            {% endif %}
+        </div>
+
+        {# ===== Droits CC User (clients externes en lecture) ===== #}
+        <div class="form-card card-cc-user">
+            <h3>👁️ Droits CC User <small class="fw-normal text-muted" style="font-size:0.8rem;">(client externe, lecture)</small></h3>
+            <p class="text-muted" style="font-size: 0.85rem;">
+                Coche les contrats cadres auxquels cet utilisateur a accès en lecture (portail client).
+                Un CC déjà coché en Admin ne peut pas être coché en User.
+            </p>
+            {% if contrats_cadre|length > 0 %}
+            <div class="cc-grid" id="ccUserGrid">
+                {% for cc in contrats_cadre %}
+                <label class="cc-checkbox-item" id="ccUserLabel_{{ cc.id }}">
+                    <input type="checkbox"
+                           class="form-check-input cc-user-input"
+                           name="cc_user[]"
+                           value="{{ cc.id }}"
+                           data-cc-id="{{ cc.id }}"
+                           {{ (
+                               (cc_user_ids is defined and cc.id in cc_user_ids)
+                               or
+                               (user and user.userContratCadres is defined and user.userContratCadres|filter(ucc => ucc.contratCadre.id == cc.id and ucc.roleType == 'user')|length > 0)
+                           ) ? 'checked' : '' }}>
+                    <span>{{ cc.nom }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            <div class="mt-2">
+                <button type="button" class="btn btn-sm btn-outline-success" id="selectAllCcUser">Tout sélectionner</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllCcUser">Tout désélectionner</button>
+            </div>
+            {% else %}
+            <p class="text-muted fst-italic mb-0">Aucun contrat cadre disponible.</p>
+            {% endif %}
         </div>
 
         {# ===== Boutons ===== #}
         <div class="d-flex justify-content-between align-items-center mb-4">
             <a href="{{ path('admin_users') }}" class="btn btn-outline-secondary">Annuler</a>
             <button type="submit" class="btn btn-primary btn-lg">
-                {{ is_edit ? '💾 Enregistrer les modifications' : '✅ Créer l\'utilisateur' }}
+                {{ is_edit ? '💾 Enregistrer les modifications' : "✅ Créer l'utilisateur" }}
             </button>
         </div>
     </form>
@@ -291,44 +349,69 @@
 {% block javascripts %}
 {{ parent() }}
 <script>
-document.addEventListener('turbo:load', function() {
-    const selectAllBtn = document.getElementById('selectAllAgencies');
-    const deselectAllBtn = document.getElementById('deselectAllAgencies');
-    const agencyCheckboxes = document.querySelectorAll('input[name="agencies[]"]');
-    const roleInputs = document.querySelectorAll('.role-input');
-    const ccSection = document.getElementById('ccSection');
-    const ccHint = document.getElementById('ccHint');
+document.addEventListener('turbo:load', function () {
 
-    // Pas sur cette page ? On sort
-    if (!selectAllBtn) return;
+    // ---------- Agences ----------
+    const selectAllAgencies   = document.getElementById('selectAllAgencies');
+    const deselectAllAgencies = document.getElementById('deselectAllAgencies');
+    const agencyCheckboxes    = document.querySelectorAll('input[name="agencies[]"]');
 
-    // Toggle section Contrat Cadre selon les rôles cochés
-    function updateCcVisibility() {
-        const checkedRoles = Array.from(roleInputs)
-            .filter(input => input.checked)
-            .map(input => input.value);
-        
-        const needsCc = checkedRoles.includes('ROLE_CLIENT_CC') || checkedRoles.includes('ROLE_ADMIN_CC');
-        
-        ccSection.classList.toggle('visible', needsCc);
-        ccHint.style.display = needsCc ? 'none' : 'block';
+    if (selectAllAgencies) {
+        selectAllAgencies.addEventListener('click',   () => agencyCheckboxes.forEach(cb => cb.checked = true));
+        deselectAllAgencies.addEventListener('click', () => agencyCheckboxes.forEach(cb => cb.checked = false));
     }
 
-    roleInputs.forEach(input => {
-        input.addEventListener('change', updateCcVisibility);
-    });
+    // ---------- CC ----------
+    const ccAdminInputs      = document.querySelectorAll('.cc-admin-input');
+    const ccUserInputs       = document.querySelectorAll('.cc-user-input');
+    const selectAllCcAdmin   = document.getElementById('selectAllCcAdmin');
+    const deselectAllCcAdmin = document.getElementById('deselectAllCcAdmin');
+    const selectAllCcUser    = document.getElementById('selectAllCcUser');
+    const deselectAllCcUser  = document.getElementById('deselectAllCcUser');
 
-    // Initial state
-    updateCcVisibility();
+    /**
+     * Règle d'exclusivité : si un CC est coché en Admin,
+     * il est désactivé (et décoché) côté User.
+     */
+    function syncCcExclusivity() {
+        const adminCheckedIds = new Set(
+            Array.from(ccAdminInputs)
+                .filter(i => i.checked)
+                .map(i => i.value)
+        );
 
-    // Select/Deselect all agencies
-    selectAllBtn.addEventListener('click', function() {
-        agencyCheckboxes.forEach(cb => cb.checked = true);
-    });
+        ccUserInputs.forEach(function (input) {
+            const ccId = input.dataset.ccId;
+            const label = document.getElementById('ccUserLabel_' + ccId);
+            if (adminCheckedIds.has(ccId)) {
+                input.checked  = false;
+                input.disabled = true;
+                if (label) label.style.opacity = '0.4';
+            } else {
+                input.disabled = false;
+                if (label) label.style.opacity = '1';
+            }
+        });
+    }
 
-    deselectAllBtn.addEventListener('click', function() {
-        agencyCheckboxes.forEach(cb => cb.checked = false);
-    });
+    ccAdminInputs.forEach(i => i.addEventListener('change', syncCcExclusivity));
+    syncCcExclusivity(); // état initial
+
+    if (selectAllCcAdmin) {
+        selectAllCcAdmin.addEventListener('click', function () {
+            ccAdminInputs.forEach(cb => cb.checked = true);
+            syncCcExclusivity();
+        });
+        deselectAllCcAdmin.addEventListener('click', function () {
+            ccAdminInputs.forEach(cb => cb.checked = false);
+            syncCcExclusivity();
+        });
+    }
+
+    if (selectAllCcUser) {
+        selectAllCcUser.addEventListener('click',   () => ccUserInputs.forEach(cb => { if (!cb.disabled) cb.checked = true; }));
+        deselectAllCcUser.addEventListener('click', () => ccUserInputs.forEach(cb => { if (!cb.disabled) cb.checked = false; }));
+    }
 });
 </script>
 {% endblock %}
