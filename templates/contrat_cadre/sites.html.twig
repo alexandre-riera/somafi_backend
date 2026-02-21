@@ -271,7 +271,7 @@
     <div class="sites-grid" id="sitesGrid">
         {% for site in sites %}
             {% set equipKey = site.agency_code ~ '_' ~ site.id_contact %}
-            {% set nbEquipements = equipmentCounts[equipKey] ?? 0 %}
+            {% set nbEquipements = equipment_counts[equipKey] ?? 0 %}
 
             <a href="{{ path('app_contrat_cadre_site_detail', {
                 slug: contrat_cadre.slug,
