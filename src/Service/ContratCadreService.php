@@ -612,4 +612,48 @@ class ContratCadreService
         // Admin spécifique à ce CC via la table de liaison
         return $user->isAdminOfContratCadre($contratCadre->getId());
     }
+
+    /**
+     * Retourne le nombre d'équipements distincts par site (id_contact)
+     * pour une liste de sites groupés par agence.
+     * 
+     * @return array<string, int>  clé = "{agency_code}_{id_contact}" => count
+     */
+    public function getEquipmentCountsForSites(array $sites): array
+    {
+        // Regrouper les id_contact par agence
+        $byAgency = [];
+        foreach ($sites as $site) {
+            $byAgency[$site['agency_code']][] = $site['id_contact'];
+        }
+
+        $counts = [];
+
+        foreach ($byAgency as $agencyCode => $idContacts) {
+            $tableName = 'equipement_' . strtolower($agencyCode);
+            $placeholders = implode(',', array_fill(0, count($idContacts), '?'));
+
+            try {
+                $sql = "
+                    SELECT id_contact, COUNT(DISTINCT numero_equipement) as nb_equipements
+                    FROM {$tableName}
+                    WHERE id_contact IN ({$placeholders})
+                        AND is_archive = 0
+                    GROUP BY id_contact
+                ";
+
+                $result = $this->connection->executeQuery($sql, array_values($idContacts));
+
+                foreach ($result->fetchAllAssociative() as $row) {
+                    $key = $agencyCode . '_' . $row['id_contact'];
+                    $counts[$key] = (int) $row['nb_equipements'];
+                }
+
+            } catch (\Exception $e) {
+                $this->logger->warning("Erreur getEquipmentCounts sur {$tableName}: " . $e->getMessage());
+            }
+        }
+
+        return $counts;
+    }
 }

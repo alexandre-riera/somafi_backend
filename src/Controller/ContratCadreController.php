@@ -50,12 +50,14 @@ class ContratCadreController extends AbstractController
 
         $sites = $this->contratCadreService->findAllSitesForContratCadre($contratCadre);
         $sitesByAgency = $this->contratCadreService->countSitesByAgency($sites);
+        $equipmentCounts = $this->contratCadreService->getEquipmentCountsForSites($sites);
 
         return $this->render('contrat_cadre/sites.html.twig', [
             'contrat_cadre' => $contratCadre,
             'sites' => $sites,
             'sites_by_agency' => $sitesByAgency,
             'total_sites' => count($sites),
+            'equipment_counts' => $equipmentCounts,
         ]);
     }
 
