@@ -569,30 +569,34 @@ class ContratCadreService
     // ========================================================================
 
     /**
-     * Vérifie si un utilisateur a accès à un contrat cadre
+     * Vérifie si un utilisateur a accès à un contrat cadre (lecture ou admin).
+     *
+     * Nouvelle logique (table user_contrat_cadre) :
+     *   - ROLE_ADMIN : accès total
+     *   - user_contrat_cadre.role_type IN ('admin','user') pour ce CC : accès
      */
     public function userHasAccessToContratCadre($user, ContratCadre $contratCadre): bool
     {
-        // Admin global : accès total
-        if (in_array('ROLE_ADMIN', $user->getRoles())) {
+        if (!$user) {
+            return false;
+        }
+
+        // Admin global SOMAFI : accès total
+        if ($user->isAdmin()) {
             return true;
         }
 
-        // Admin CC global
-        if (in_array('ROLE_CC_ADMIN', $user->getRoles())) {
-            return true;
-        }
-
-        // Vérifier le rôle spécifique au CC
-        $adminRole = $contratCadre->getAdminRole();
-        $userRole = $contratCadre->getUserRole();
-
-        return in_array($adminRole, $user->getRoles()) || in_array($userRole, $user->getRoles());
+        // Accès via la table de liaison (admin ou user sur ce CC)
+        return $user->hasAccessToContratCadre($contratCadre->getId());
     }
 
     /**
      * Vérifie si un utilisateur est admin d'un contrat cadre
-     * (peut uploader/supprimer des fichiers)
+     * (peut uploader/supprimer des fichiers).
+     *
+     * Nouvelle logique (table user_contrat_cadre) :
+     *   - ROLE_ADMIN : admin total
+     *   - user_contrat_cadre.role_type = 'admin' pour ce CC
      */
     public function isUserCcAdmin($user, ContratCadre $contratCadre): bool
     {
@@ -600,20 +604,12 @@ class ContratCadreService
             return false;
         }
 
-        $roles = $user->getRoles();
-
-        // Admin global
-        if (in_array('ROLE_ADMIN', $roles)) {
+        // Admin global SOMAFI
+        if ($user->isAdmin()) {
             return true;
         }
 
-        // Admin CC global
-        if (in_array('ROLE_CC_ADMIN', $roles)) {
-            return true;
-        }
-
-        // Admin spécifique au CC (ex: MONDIAL-RELAY_ADMIN)
-        $adminRole = $contratCadre->getAdminRole();
-        return in_array($adminRole, $roles);
+        // Admin spécifique à ce CC via la table de liaison
+        return $user->isAdminOfContratCadre($contratCadre->getId());
     }
 }
