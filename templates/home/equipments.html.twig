@@ -141,56 +141,65 @@
 
     {# Card CR Techniciens (PDF Kizeo) #}
     <div class="card shadow-sm mb-4">
-        <div class="card-header bg-info bg-opacity-10 d-flex align-items-center">
-            <i class="bi bi-file-earmark-pdf me-2 text-info"></i>
-            <strong>CR Techniciens</strong>
-            {% if technician_reports|length > 0 %}
-                <span class="badge bg-info ms-2">{{ technician_reports|length }}</span>
-            {% endif %}
-            <small class="text-muted ms-auto">{{ visite }} {{ annee }}</small>
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">
+            <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+            CR Techniciens
+        </h6>
+        <div>
+            <span class="badge bg-secondary">{{ technician_reports|length }}</span>
+            <span class="text-muted ms-2">{{ visite }} {{ annee }}</span>
         </div>
+    </div>
 
-        {% if technician_reports|length > 0 %}
-            <ul class="list-group list-group-flush">
-                {% for cr in technician_reports %}
-                    <li class="list-group-item d-flex align-items-center py-3">
-                        <div class="me-3">
-                            <i class="bi bi-file-pdf fs-4 text-danger"></i>
-                        </div>
-                        <div class="flex-grow-1 min-width-0">
-                            <div class="fw-semibold text-truncate" title="{{ cr.local_path|split('/')|last }}">
-                                {{ cr.local_path|split('/')|last }}
-                            </div>
-                            <small class="text-muted">
-                                {% if cr.file_size %}
-                                    {{ (cr.file_size / 1048576)|number_format(1) }} MB
-                                {% endif %}
-                                {% if cr.completed_at %}
-                                    · Téléchargé le {{ cr.completed_at|date('d/m/Y à H:i') }}
-                                {% endif %}
-                            </small>
-                        </div>
-                        <div class="d-flex gap-2 ms-3">
-                            <a href="{{ path('app_download_technician_cr', {agencyCode: agencyCode, jobId: cr.id}) }}"
-                            class="btn btn-outline-primary btn-sm"
-                            target="_blank"
-                            title="Consulter dans le navigateur">
-                                <i class="bi bi-eye"></i>
-                            </a>
-                            <a href="{{ path('app_download_technician_cr', {agencyCode: agencyCode, jobId: cr.id}) }}?mode=download"
-                            class="btn btn-outline-success btn-sm"
-                            title="Télécharger">
-                                <i class="bi bi-download"></i>
-                            </a>
-                        </div>
-                    </li>
-                {% endfor %}
-            </ul>
-        {% else %}
-            <div class="card-body text-center text-muted py-4">
-                <i class="bi bi-clock-history fs-3 d-block mb-2"></i>
-                Aucun CR technicien disponible pour {{ visite }} {{ annee }}
-                <br><small>Les PDF sont en cours de téléchargement depuis Kizeo</small>
+    {% if technician_reports|length > 0 %}
+        <ul class="list-group list-group-flush">
+            {% for cr in technician_reports %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="bi bi-file-pdf text-danger me-2"></i>
+                        <span class="text-truncate" style="max-width: 400px; display: inline-block; vertical-align: middle;">
+                            {{ cr.filename }}
+                        </span>
+                        {% if cr.filesize %}
+                            <span class="badge bg-light text-dark ms-2">
+                                {{ (cr.filesize / 1024)|round(0) }} Ko
+                            </span>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex gap-2 ms-3">
+                        <a href="{{ path('app_download_technician_cr', {
+                            agencyCode: agencyCode, 
+                            idContact: client.id_contact,
+                            annee: annee,
+                            visite: visite,
+                            filename: cr.filename
+                        }) }}"
+                           class="btn btn-outline-primary btn-sm"
+                           target="_blank"
+                           title="Consulter dans le navigateur">
+                            <i class="bi bi-eye"></i>
+                        </a>
+                        <a href="{{ path('app_download_technician_cr', {
+                            agencyCode: agencyCode, 
+                            idContact: client.id_contact,
+                            annee: annee,
+                            visite: visite,
+                            filename: cr.filename
+                        }) }}?mode=download"
+                           class="btn btn-outline-success btn-sm"
+                           title="Télécharger">
+                            <i class="bi bi-download"></i>
+                        </a>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <div class="card-body text-center text-muted py-4">
+            <i class="bi bi-clock-history fs-3 d-block mb-2"></i>
+            Aucun CR technicien disponible pour {{ visite }} {{ annee }}
+            <br><small>Les PDF sont en cours de téléchargement depuis Kizeo</small>
             </div>
         {% endif %}
     </div>

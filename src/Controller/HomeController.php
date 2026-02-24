@@ -380,10 +380,28 @@ class HomeController extends AbstractController
      * 
      * Les PDF sont dans storage/ (hors public/), on les sert via BinaryFileResponse.
      * Mode inline = aperçu navigateur, mode download = téléchargement.
+     * 
+     * Sécurité : le path est reconstruit à partir des paramètres validés par les requirements,
+     * pas depuis un input utilisateur libre.
      */
-    #[Route('/agency/{agencyCode}/cr/{jobId}', name: 'app_download_technician_cr', requirements: ['agencyCode' => 'S\d+', 'jobId' => '\d+'])]
-    public function downloadTechnicianPdf(string $agencyCode, int $jobId, Request $request): Response
-    {
+    #[Route('/agency/{agencyCode}/cr/{idContact}/{annee}/{visite}/{filename}', 
+        name: 'app_download_technician_cr', 
+        requirements: [
+            'agencyCode' => 'S\d+', 
+            'idContact' => '\d+',
+            'annee' => '\d{4}',
+            'visite' => 'CEA|CE1|CE2|CE3|CE4',
+            'filename' => '.+\.pdf'
+        ]
+    )]
+    public function downloadTechnicianPdf(
+        string $agencyCode, 
+        int $idContact, 
+        string $annee, 
+        string $visite, 
+        string $filename,
+        Request $request
+    ): Response {
         /** @var User $user */
         $user = $this->getUser();
 
@@ -392,38 +410,30 @@ class HomeController extends AbstractController
             throw $this->createAccessDeniedException('Accès non autorisé');
         }
 
-        // Récupérer le job PDF
-        try {
-            $sql = "SELECT * FROM kizeo_jobs WHERE id = :id AND job_type = 'pdf' AND status = 'done' LIMIT 1";
-            $job = $this->connection->fetchAssociative($sql, ['id' => $jobId]);
-        } catch (\Exception $e) {
+        // Reconstruire le chemin complet (sécurisé car chaque segment est validé par les requirements)
+        $filePath = sprintf(
+            '%s/storage/pdf/%s/%d/%s/%s/%s',
+            $this->getParameter('kernel.project_dir'),
+            strtoupper($agencyCode),
+            $idContact,
+            $annee,
+            strtoupper($visite),
+            $filename
+        );
+
+        // Sécurité supplémentaire : vérifier qu'il n'y a pas de traversal
+        $realPath = realpath($filePath);
+        $storageBase = realpath($this->getParameter('kernel.project_dir') . '/storage/pdf');
+        
+        if (!$realPath || !$storageBase || !str_starts_with($realPath, $storageBase)) {
             throw $this->createNotFoundException('CR technicien non trouvé');
         }
 
-        if (!$job) {
-            throw $this->createNotFoundException('CR technicien non trouvé');
-        }
-
-        // Vérifier que le job appartient bien à cette agence
-        if (strtoupper($job['agency_code']) !== strtoupper($agencyCode)) {
-            throw $this->createAccessDeniedException('Accès non autorisé à ce document');
-        }
-
-        // Vérifier que le fichier existe sur le disque
-        $filePath = $job['local_path'];
-        if (!$filePath || !file_exists($filePath)) {
-            // Fallback : reconstruire le chemin depuis le project dir
-            $filename = basename($filePath);
-            $filePath = $this->getParameter('kernel.project_dir') . '/storage/pdf/' 
-                . $agencyCode . '/' . $job['id_contact'] . '/' 
-                . $job['annee'] . '/' . $job['visite'] . '/' . $filename;
-        }
-
-        if (!file_exists($filePath)) {
+        if (!file_exists($realPath)) {
             throw $this->createNotFoundException('Fichier PDF non trouvé sur le serveur');
         }
 
-        $response = new BinaryFileResponse($filePath);
+        $response = new BinaryFileResponse($realPath);
         $response->headers->set('Content-Type', 'application/pdf');
 
         $mode = $request->query->get('mode', 'inline');
@@ -431,7 +441,7 @@ class HomeController extends AbstractController
             ? ResponseHeaderBag::DISPOSITION_ATTACHMENT
             : ResponseHeaderBag::DISPOSITION_INLINE;
 
-        $response->setContentDisposition($disposition, basename($filePath));
+        $response->setContentDisposition($disposition, $filename);
 
         return $response;
     }
@@ -655,34 +665,48 @@ class HomeController extends AbstractController
     }
 
     /**
-     * Récupère les CR techniciens (PDF) disponibles pour un client/visite
-     * Source : table kizeo_jobs (jobs PDF terminés avec succès)
+     * Récupère les CR techniciens (PDF) en scannant le filesystem
+     * Plus de dépendance à kizeo_jobs — fonctionne même après purge
      * 
-     * @return array Liste des CR avec id, data_id, client_name, local_path, file_size, completed_at
+     * Structure attendue : storage/pdf/{agencyCode}/{idContact}/{annee}/{visite}/*.pdf
+     * 
+     * @return array Liste des CR avec filename, filepath, filesize, modified_at
      */
     private function getTechnicianReports(string $agencyCode, int $idContact, string $annee, string $visite): array
     {
-        try {
-            $sql = "SELECT id, data_id, form_id, client_name, local_path, file_size, completed_at, annee, visite
-                    FROM kizeo_jobs
-                    WHERE job_type = 'pdf'
-                    AND status = 'done'
-                    AND agency_code = :agency_code
-                    AND id_contact = :id_contact
-                    AND annee = :annee
-                    AND visite = :visite
-                    ORDER BY completed_at DESC";
+        $dir = sprintf(
+            '%s/storage/pdf/%s/%d/%s/%s',
+            $this->getParameter('kernel.project_dir'),
+            strtoupper($agencyCode),
+            $idContact,
+            $annee,
+            strtoupper($visite)
+        );
 
-            return $this->connection->fetchAllAssociative($sql, [
-                'agency_code' => strtoupper($agencyCode),
-                'id_contact' => $idContact,
-                'annee' => $annee,
-                'visite' => $visite,
-            ]);
-
-        } catch (\Exception $e) {
+        if (!is_dir($dir)) {
             return [];
         }
+
+        $reports = [];
+        $files = glob($dir . '/*.pdf');
+
+        if ($files === false) {
+            return [];
+        }
+
+        foreach ($files as $filepath) {
+            $filename = basename($filepath);
+            $reports[] = [
+                'filename' => $filename,
+                'filesize' => filesize($filepath),
+                'modified_at' => date('Y-m-d H:i', filemtime($filepath)),
+            ];
+        }
+
+        // Tri par nom de fichier (alphabétique décroissant)
+        usort($reports, fn($a, $b) => strcmp($b['filename'], $a['filename']));
+
+        return $reports;
     }
 
     /**
