@@ -220,7 +220,7 @@ class ContratEntretienController extends AbstractController
                 /** @var \App\Entity\User|null $user */
                 $user = $this->getUser();
                 $userId = $user?->getId();
-                
+
                 $contratId = $this->contratService->insertContrat(
                     $agencyCode,
                     $dto,
@@ -951,5 +951,28 @@ class ContratEntretienController extends AbstractController
             'agencyCode' => $agencyCode,
             'id'         => $contratId,
         ]);
+    }
+
+    /**
+     * Recherche les clients d'une agence par raison_sociale.
+     *
+     * URL : /contrats/{agencyCode}/api/clients/search?q=mondial
+     * Retourne max 15 résultats, triés par raison_sociale.
+     */
+    #[Route('/{agencyCode}/api/clients/search', name: 'app_contrat_entretien_api_clients_search', methods: ['GET'])]
+    public function apiClientSearch(string $agencyCode, Request $request): JsonResponse
+    {
+        $agencyCode = $this->resolveAgencyOrThrow($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::CREATE, $agencyCode);
+
+        $query = trim($request->query->get('q', ''));
+
+        if (mb_strlen($query) < 2) {
+            return $this->json([]);
+        }
+
+        $clients = $this->contactService->searchByRaisonSociale($agencyCode, $query, 15);
+
+        return $this->json($clients);
     }
 }

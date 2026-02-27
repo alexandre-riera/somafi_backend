@@ -1,19 +1,69 @@
 {# templates/contrat_entretien/_form_contrat.html.twig #}
 
-{% if clientInfo %}
-<div class="alert alert-info d-flex align-items-center mb-4">
-    <i class="bi bi-person-badge me-2 fs-4"></i>
-    <div>
-        <strong>Client :</strong> {{ clientInfo.raison_sociale ?? 'N/A' }}
-        {% if clientInfo.villep %} — {{ clientInfo.villep }}{% endif %}
-        {% if clientInfo.cpostalp %} ({{ clientInfo.cpostalp }}){% endif %}
-        <br>
-        <small class="text-muted">
-            id_contact: {{ dto.idContact }} | contact_id: {{ dto.contactId }}
-        </small>
+{# === SECTION SÉLECTION CLIENT === #}
+<div class="card mb-4" id="client-selection-card">
+    <div class="card-header bg-warning text-dark">
+        <i class="bi bi-person-check"></i> Client rattaché au contrat
+    </div>
+    <div class="card-body">
+
+        {# Bandeau info si client déjà sélectionné #}
+        <div id="client-selected-banner" class="alert alert-info d-flex align-items-center {% if not clientInfo %}d-none{% endif %}">
+            <i class="bi bi-person-badge me-2 fs-4"></i>
+            <div class="flex-grow-1">
+                <strong>Client :</strong>
+                <span id="client-selected-name">{{ clientInfo.raison_sociale ?? '' }}</span>
+                <span id="client-selected-location">
+                    {% if clientInfo.ville is defined and clientInfo.ville %} — {{ clientInfo.ville }}{% endif %}
+                    {% if clientInfo.code_postal is defined and clientInfo.code_postal %} ({{ clientInfo.code_postal }}){% endif %}
+                </span>
+                <br>
+                <small class="text-muted">
+                    id_contact: <span id="client-selected-id-contact">{{ dto.idContact ?? '' }}</span>
+                    | contact_id: <span id="client-selected-contact-id">{{ dto.contactId ?? '' }}</span>
+                </small>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-3" id="btn-change-client" title="Changer de client">
+                <i class="bi bi-arrow-repeat"></i> Changer
+            </button>
+        </div>
+
+        {# Zone de recherche (visible si pas de client sélectionné) #}
+        <div id="client-search-zone" class="{% if clientInfo %}d-none{% endif %}">
+            <label class="form-label fw-bold">Rechercher un client existant</label>
+            <div class="position-relative">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input
+                        type="text"
+                        id="client-search-input"
+                        class="form-control"
+                        placeholder="Tapez au moins 2 caractères (raison sociale)..."
+                        autocomplete="off"
+                    >
+                </div>
+                {# Dropdown résultats #}
+                <div id="client-search-results"
+                     class="list-group position-absolute w-100 shadow-sm d-none"
+                     style="z-index: 1050; max-height: 300px; overflow-y: auto;">
+                </div>
+            </div>
+            <div class="mt-2">
+                <small class="text-muted">
+                    Ou
+                    <a href="{{ path('app_contrat_entretien_create_client', {agencyCode: agencyCode}) }}">
+                        <i class="bi bi-person-plus"></i> créer un nouveau client
+                    </a>
+                </small>
+            </div>
+        </div>
+
+        {# Message de validation si pas de client #}
+        <div id="client-validation-error" class="invalid-feedback d-none">
+            Veuillez sélectionner un client avant de soumettre le formulaire.
+        </div>
     </div>
 </div>
-{% endif %}
 
 {{ form_start(form, {'attr': {'novalidate': 'novalidate', 'enctype': 'multipart/form-data'}}) }}
 

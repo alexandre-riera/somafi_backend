@@ -32,3 +32,198 @@
     {% include 'contrat_entretien/_form_contrat.html.twig' %}
 </div>
 {% endblock %}
+{% block javascripts %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+
+            // ── Éléments DOM ──
+            const searchInput     = document.getElementById('client-search-input');
+            const searchResults   = document.getElementById('client-search-results');
+            const selectedBanner  = document.getElementById('client-selected-banner');
+            const searchZone      = document.getElementById('client-search-zone');
+            const btnChange       = document.getElementById('btn-change-client');
+            const validationError = document.getElementById('client-validation-error');
+
+            // Hidden fields du formulaire Symfony
+            const hiddenContactId  = document.getElementById('contrat_entretien_contactId');
+            const hiddenIdContact  = document.getElementById('contrat_entretien_idContact');
+
+            // Spans d'affichage dans le bandeau
+            const spanName       = document.getElementById('client-selected-name');
+            const spanLocation   = document.getElementById('client-selected-location');
+            const spanIdContact  = document.getElementById('client-selected-id-contact');
+            const spanContactId  = document.getElementById('client-selected-contact-id');
+
+            // Agence courante (passée depuis Twig)
+            const agencyCode = '{{ agencyCode }}';
+
+            let debounceTimer = null;
+
+            // ── Recherche AJAX avec debounce ──
+            if (searchInput) {
+                searchInput.addEventListener('input', function () {
+                    const query = this.value.trim();
+
+                    clearTimeout(debounceTimer);
+
+                    if (query.length < 2) {
+                        hideResults();
+                        return;
+                    }
+
+                    debounceTimer = setTimeout(() => {
+                        fetchClients(query);
+                    }, 300);
+                });
+
+                // Fermer le dropdown si on clique ailleurs
+                document.addEventListener('click', function (e) {
+                    if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+                        hideResults();
+                    }
+                });
+            }
+
+            // ── Bouton "Changer" de client ──
+            if (btnChange) {
+                btnChange.addEventListener('click', function () {
+                    // Réafficher la zone de recherche
+                    selectedBanner.classList.add('d-none');
+                    searchZone.classList.remove('d-none');
+
+                    // Vider les hidden fields
+                    if (hiddenContactId) hiddenContactId.value = '';
+                    if (hiddenIdContact) hiddenIdContact.value = '';
+
+                    // Focus sur le champ de recherche
+                    if (searchInput) {
+                        searchInput.value = '';
+                        searchInput.focus();
+                    }
+                });
+            }
+
+            // ── Validation avant soumission ──
+            const form = document.querySelector('form[name="contrat_entretien"]');
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    if (!hiddenContactId || !hiddenContactId.value || hiddenContactId.value === '0') {
+                        e.preventDefault();
+                        if (validationError) {
+                            validationError.classList.remove('d-none');
+                            validationError.style.display = 'block';
+                        }
+                        // Afficher la zone de recherche si cachée
+                        if (searchZone.classList.contains('d-none')) {
+                            selectedBanner.classList.add('d-none');
+                            searchZone.classList.remove('d-none');
+                        }
+                        searchInput.focus();
+                        // Scroll vers le haut
+                        document.getElementById('client-selection-card').scrollIntoView({ behavior: 'smooth' });
+                    }
+                });
+            }
+
+            // ── Fetch API ──
+            function fetchClients(query) {
+                const url = `/contrats/${agencyCode}/api/clients/search?q=${encodeURIComponent(query)}`;
+
+                fetch(url, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error('Erreur réseau');
+                    return response.json();
+                })
+                .then(clients => {
+                    renderResults(clients);
+                })
+                .catch(error => {
+                    console.error('Erreur recherche client:', error);
+                    searchResults.innerHTML = '<div class="list-group-item text-danger">Erreur de recherche</div>';
+                    searchResults.classList.remove('d-none');
+                });
+            }
+
+            // ── Affichage des résultats ──
+            function renderResults(clients) {
+                searchResults.innerHTML = '';
+
+                if (clients.length === 0) {
+                    searchResults.innerHTML = `
+                        <div class="list-group-item text-muted">
+                            <i class="bi bi-info-circle"></i> Aucun client trouvé.
+                            <a href="/contrats/${agencyCode}/client/new" class="ms-1">Créer un nouveau client</a>
+                        </div>
+                    `;
+                    searchResults.classList.remove('d-none');
+                    return;
+                }
+
+                clients.forEach(client => {
+                    const item = document.createElement('button');
+                    item.type = 'button';
+                    item.className = 'list-group-item list-group-item-action';
+                    item.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>${escapeHtml(client.raison_sociale)}</strong>
+                                ${client.ville ? '<br><small class="text-muted">' + escapeHtml(client.ville) + (client.code_postal ? ' (' + escapeHtml(client.code_postal) + ')' : '') + '</small>' : ''}
+                            </div>
+                            <span class="badge bg-secondary">${escapeHtml(client.id_contact)}</span>
+                        </div>
+                    `;
+
+                    item.addEventListener('click', function () {
+                        selectClient(client);
+                    });
+
+                    searchResults.appendChild(item);
+                });
+
+                searchResults.classList.remove('d-none');
+            }
+
+            // ── Sélection d'un client ──
+            function selectClient(client) {
+                // Remplir les hidden fields
+                if (hiddenContactId) hiddenContactId.value = client.contact_id;
+                if (hiddenIdContact) hiddenIdContact.value = client.id_contact;
+
+                // Mettre à jour le bandeau
+                if (spanName) spanName.textContent = client.raison_sociale;
+                if (spanLocation) {
+                    let loc = '';
+                    if (client.ville) loc += ' — ' + client.ville;
+                    if (client.code_postal) loc += ' (' + client.code_postal + ')';
+                    spanLocation.textContent = loc;
+                }
+                if (spanIdContact) spanIdContact.textContent = client.id_contact;
+                if (spanContactId) spanContactId.textContent = client.contact_id;
+
+                // Basculer l'affichage
+                searchZone.classList.add('d-none');
+                selectedBanner.classList.remove('d-none');
+                hideResults();
+
+                // Masquer l'erreur de validation si visible
+                if (validationError) {
+                    validationError.classList.add('d-none');
+                    validationError.style.display = 'none';
+                }
+            }
+
+            function hideResults() {
+                if (searchResults) searchResults.classList.add('d-none');
+            }
+
+            function escapeHtml(text) {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        });
+    </script>
+{% endblock %}
