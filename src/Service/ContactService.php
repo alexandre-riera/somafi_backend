@@ -252,7 +252,7 @@ class ContactService
             );
         }
     }
-    
+
     /**
      * Recherche les clients par raison_sociale (LIKE %query%).
      *
@@ -265,22 +265,19 @@ class ContactService
 
         $sql = "
             SELECT
-                contact_id,
+                id AS contact_id,
                 id_contact,
                 raison_sociale,
-                COALESCE(ville, villep, '') AS ville,
-                COALESCE(code_postal, cpostalp, '') AS code_postal
+                COALESCE(villep, '') AS ville,
+                COALESCE(cpostalp, '') AS code_postal
             FROM {$table}
             WHERE raison_sociale LIKE :query
             ORDER BY raison_sociale
-            LIMIT :limit
+            LIMIT {$limit}
         ";
 
         return $this->connection->fetchAllAssociative($sql, [
             'query' => '%' . $query . '%',
-            'limit' => $limit,
-        ], [
-            'limit' => \Doctrine\DBAL\ParameterType::INTEGER,
         ]);
     }
 }
