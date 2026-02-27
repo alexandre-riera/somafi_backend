@@ -528,4 +528,28 @@ class ContratEntretienService
             throw $e;
         }
     }
+
+    public function getEquipementsByContact(
+        string $agencyCode,
+        string $idContact,
+        ?string $annee = null,
+    ): array {
+        $table = $this->getEquipementTableName($agencyCode);
+
+        $sql = sprintf(
+            'SELECT id, numero_equipement, libelle_equipement, visite, annee, marque, mode_fonctionnement, repere_site_client, is_hors_contrat, is_archive '
+            . 'FROM %s WHERE id_contact = :id_contact AND is_archive = 0',
+            $table
+        );
+        $params = ['id_contact' => $idContact];
+
+        if ($annee) {
+            $sql .= ' AND annee = :annee';
+            $params['annee'] = $annee;
+        }
+
+        $sql .= ' ORDER BY numero_equipement, visite';
+
+        return $this->connection->fetchAllAssociative($sql, $params);
+    }
 }

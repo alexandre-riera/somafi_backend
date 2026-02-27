@@ -54,8 +54,7 @@
                     {# Numéro équipement (readonly) #}
                     <div class="col-md-4">
                         <label class="form-label fw-semibold">Numéro équipement SOMAFI</label>
-                        <input type="text" class="form-control" value="{{ equipment.numero_equipement }}" readonly disabled>
-                        <small class="text-muted">Identifiant interne — non modifiable</small>
+                        <input type="text" name="numero_equipement" class="form-control" value="{{ equipment.numero_equipement }}">
                     </div>
 
                     {# Numéro équipement client (NOUVEAU) #}

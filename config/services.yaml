@@ -105,3 +105,12 @@ services:
     App\Service\ContratPdfService:
         arguments:
             $projectDir: '%kernel.project_dir%'
+
+    # Connection, KizeoListBuilder, HttpClientInterface, LoggerInterface
+    # sont autowirés par Symfony. Seuls les scalaires doivent être déclarés.
+
+    App\Service\Kizeo\KizeoEquipmentSyncService:
+        arguments:
+            $apiUrl: '%kizeo.api_url%'
+            $apiToken: '%kizeo.api_token%'
+            $projectDir: '%kernel.project_dir%'

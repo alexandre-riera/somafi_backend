@@ -1,0 +1,321 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Prévisualisation — {{ agencyCode }}{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+
+    {# ── Breadcrumb ── #}
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}">Contrats {{ agencyCode }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ path('app_contrat_entretien_show', {agencyCode: agencyCode, id: contratId}) }}">Contrat n°{{ contrat.numero_contrat }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ path('app_contrat_entretien_bulk_equipements', {agencyCode: agencyCode, contratId: contratId}) }}">Saisie</a></li>
+            <li class="breadcrumb-item active">Prévisualisation</li>
+        </ol>
+    </nav>
+
+    {# ── Bandeau client ── #}
+    {% if clientNom %}
+    <div class="alert alert-info d-flex align-items-center mb-4">
+        <i class="bi bi-person-circle fs-4 me-3"></i>
+        <div>
+            <strong>{{ clientNom }}</strong>
+            {% if clientCp %} — {{ clientCp }} {{ clientVille }}{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ── Stats ── #}
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-center border-primary">
+                <div class="card-body py-2">
+                    <div class="fs-3 fw-bold text-primary" id="statEquipements">{{ stats.total_equipements|default(0) }}</div>
+                    <small class="text-muted">Équipements distincts</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center border-success">
+                <div class="card-body py-2">
+                    <div class="fs-3 fw-bold text-success" id="statLignes">{{ lines|length }}</div>
+                    <small class="text-muted">Lignes à insérer</small>
+                </div>
+            </div>
+        </div>
+        {% if duplicates|length > 0 %}
+        <div class="col-md-3">
+            <div class="card text-center border-warning">
+                <div class="card-body py-2">
+                    <div class="fs-3 fw-bold text-warning">{{ duplicates|length }}</div>
+                    <small class="text-muted">Doublons retirés</small>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body py-2">
+                    <div class="fs-3 fw-bold">{{ annee }}</div>
+                    <small class="text-muted">Année de référence</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h2 class="mb-3">
+        <i class="bi bi-table me-2"></i>
+        Prévisualisation — Tableau éditable
+    </h2>
+    <p class="text-muted mb-3">
+        Tu peux modifier les valeurs directement dans le tableau, supprimer des lignes, ou changer les visites avant de valider.
+        <strong>Les lignes sont triées par visite</strong> (CE1 → CE2 → CE3 → CE4 → CEA).
+    </p>
+
+    {# ── Formulaire d'insertion ── #}
+    <form method="post"
+          action="{{ path('app_contrat_entretien_insert_equipements', {agencyCode: agencyCode, contratId: contratId}) }}"
+          id="formInsert">
+        <input type="hidden" name="_token" value="{{ csrf_token('insert_equipements_' ~ contratId) }}">
+
+        {# ── Variable pour grouper par visite ── #}
+        {% set currentVisite = '' %}
+
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle" id="tablePreview">
+                <thead class="table-dark">
+                    <tr>
+                        <th style="width:40px">
+                            <input type="checkbox" id="checkAll" checked title="Tout sélectionner">
+                        </th>
+                        <th style="width:50px">#</th>
+                        <th style="width:130px">N° Équipement</th>
+                        <th style="width:200px">Libellé</th>
+                        <th style="width:80px">Visite</th>
+                        <th style="width:70px">Année</th>
+                        <th style="width:130px">Marque</th>
+                        <th style="width:150px">Mode fonct.</th>
+                        <th style="width:150px">Repère site</th>
+                        <th style="width:50px"></th>
+                    </tr>
+                </thead>
+                <tbody id="bodyPreview">
+                    {% for i, line in lines %}
+                        {# ── Séparateur visuel quand la visite change ── #}
+                        {% if line.visite != currentVisite %}
+                            {% set currentVisite = line.visite %}
+                            <tr class="table-secondary">
+                                <td colspan="10" class="fw-bold small py-1 ps-3">
+                                    <i class="bi bi-calendar-check me-1"></i>
+                                    Visite {{ currentVisite }}
+                                </td>
+                            </tr>
+                        {% endif %}
+
+                        <tr data-idx="{{ i }}">
+                            <td>
+                                <input type="checkbox" class="row-check" checked>
+                            </td>
+                            <td class="text-muted small">{{ i + 1 }}</td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm"
+                                       name="lines[{{ i }}][numero_equipement]"
+                                       value="{{ line.numero_equipement }}">
+                                <input type="hidden" name="lines[{{ i }}][id_contact]" value="{{ line.id_contact }}">
+                                <input type="hidden" name="lines[{{ i }}][is_hors_contrat]" value="{{ line.is_hors_contrat }}">
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm"
+                                       name="lines[{{ i }}][libelle_equipement]"
+                                       value="{{ line.libelle_equipement }}">
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="lines[{{ i }}][visite]">
+                                    <option value="CEA"{% if line.visite == 'CEA' %} selected{% endif %}>CEA</option>
+                                    <option value="CE1"{% if line.visite == 'CE1' %} selected{% endif %}>CE1</option>
+                                    <option value="CE2"{% if line.visite == 'CE2' %} selected{% endif %}>CE2</option>
+                                    <option value="CE3"{% if line.visite == 'CE3' %} selected{% endif %}>CE3</option>
+                                    <option value="CE4"{% if line.visite == 'CE4' %} selected{% endif %}>CE4</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm"
+                                       name="lines[{{ i }}][annee]"
+                                       value="{{ line.annee }}" maxlength="4" style="width:70px">
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm"
+                                       name="lines[{{ i }}][marque]"
+                                       value="{{ line.marque }}">
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="lines[{{ i }}][mode_fonctionnement]">
+                                    <option value=""{% if line.mode_fonctionnement == '' %} selected{% endif %}>—</option>
+                                    <option value="Automatique"{% if line.mode_fonctionnement == 'Automatique' %} selected{% endif %}>Automatique</option>
+                                    <option value="Manuel"{% if line.mode_fonctionnement == 'Manuel' %} selected{% endif %}>Manuel</option>
+                                    <option value="Semi-automatique"{% if line.mode_fonctionnement == 'Semi-automatique' %} selected{% endif %}>Semi-auto</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm"
+                                       name="lines[{{ i }}][repere_site_client]"
+                                       value="{{ line.repere_site_client }}">
+                            </td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-delete-row" title="Supprimer">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-flex gap-2 mt-3 mb-5">
+            <button type="button" class="btn btn-success btn-lg" id="btnConfirm">
+                <i class="bi bi-check-circle me-1"></i>
+                Valider et insérer en BDD
+            </button>
+            <button type="button" class="btn btn-outline-danger" id="btnDeleteSelected">
+                <i class="bi bi-trash me-1"></i>
+                Supprimer la sélection
+            </button>
+            <a href="{{ path('app_contrat_entretien_bulk_equipements', {agencyCode: agencyCode, contratId: contratId}) }}"
+               class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i> Retour à la saisie
+            </a>
+        </div>
+    </form>
+
+    {# ── Doublons ── #}
+    {% if duplicates|length > 0 %}
+    <div class="card border-warning mt-4">
+        <div class="card-header bg-warning text-dark">
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            {{ duplicates|length }} doublon(s) détecté(s) et retiré(s)
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped small">
+                    <thead><tr><th>N°</th><th>Libellé</th><th>Visite</th><th>Année</th></tr></thead>
+                    <tbody>
+                        {% for dup in duplicates %}
+                        <tr class="text-muted">
+                            <td>{{ dup.numero_equipement }}</td>
+                            <td>{{ dup.libelle_equipement }}</td>
+                            <td>{{ dup.visite }}</td>
+                            <td>{{ dup.annee }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+{# ── Modale ── #}
+<div class="modal fade" id="modalConfirm" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-shield-check me-2"></i>Confirmation d'insertion</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Tu es sur le point d'insérer :</p>
+                <ul>
+                    <li><strong id="modalCount">0</strong> ligne(s) dans <strong>equipement_{{ agencyCode|lower }}</strong></li>
+                    <li>Année : <strong>{{ annee }}</strong></li>
+                    <li>Client : <strong>{{ clientNom|default('—') }}</strong></li>
+                </ul>
+                <div class="alert alert-info small mb-0">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Après insertion, pense à synchroniser la liste équipements Kizeo pour que les techniciens voient le parc sur leur tablette.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-success" id="btnDoInsert">
+                    <i class="bi bi-check2-all me-1"></i> Confirmer l'insertion
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('formInsert');
+    const tbody = document.getElementById('bodyPreview');
+    const modalEl = document.getElementById('modalConfirm');
+    const modal = new bootstrap.Modal(modalEl);
+
+    document.getElementById('checkAll').addEventListener('change', function() {
+        const checked = this.checked;
+        tbody.querySelectorAll('.row-check').forEach(cb => cb.checked = checked);
+    });
+
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-delete-row');
+        if (!btn) return;
+        btn.closest('tr').remove();
+        updateStats();
+        renumberRows();
+    });
+
+    document.getElementById('btnDeleteSelected').addEventListener('click', function() {
+        const rows = tbody.querySelectorAll('tr[data-idx]');
+        let toDelete = 0;
+        rows.forEach(tr => {
+            const cb = tr.querySelector('.row-check');
+            if (cb && cb.checked) toDelete++;
+        });
+        if (toDelete === 0) { alert('Aucune ligne sélectionnée.'); return; }
+        if (!confirm(`Supprimer ${toDelete} ligne(s) ?`)) return;
+        rows.forEach(tr => {
+            const cb = tr.querySelector('.row-check');
+            if (cb && cb.checked) tr.remove();
+        });
+        updateStats();
+        renumberRows();
+    });
+
+    document.getElementById('btnConfirm').addEventListener('click', function() {
+        const count = tbody.querySelectorAll('tr[data-idx]').length;
+        if (count === 0) { alert('Aucune ligne à insérer.'); return; }
+        document.getElementById('modalCount').textContent = count;
+        modal.show();
+    });
+
+    document.getElementById('btnDoInsert').addEventListener('click', function() {
+        form.submit();
+    });
+
+    function updateStats() {
+        const rows = tbody.querySelectorAll('tr[data-idx]');
+        const equipements = new Set();
+        rows.forEach(tr => {
+            const numInput = tr.querySelector('input[name$="[numero_equipement]"]');
+            if (numInput && numInput.value) equipements.add(numInput.value);
+        });
+        const el1 = document.getElementById('statLignes');
+        const el2 = document.getElementById('statEquipements');
+        if (el1) el1.textContent = rows.length;
+        if (el2) el2.textContent = equipements.size;
+    }
+
+    function renumberRows() {
+        const rows = tbody.querySelectorAll('tr[data-idx]');
+        rows.forEach((tr, idx) => {
+            tr.querySelectorAll('input, select').forEach(el => {
+                if (el.name) el.name = el.name.replace(/lines\[\d+\]/, `lines[${idx}]`);
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

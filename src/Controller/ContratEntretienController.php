@@ -16,6 +16,10 @@ use App\Form\ContactType;
 use App\DTO\ContratEntretienDTO;
 use App\Form\ContratEntretienType;
 use App\Service\ContratPdfService;
+use App\DTO\EquipementBulkDTO;
+use App\Service\EquipementBulkGeneratorService;
+use App\Service\EquipementInsertService;
+use App\Service\Kizeo\KizeoEquipmentSyncService;
 
 /**
  * Contrôleur pour la gestion des contrats d'entretien.
@@ -34,6 +38,9 @@ class ContratEntretienController extends AbstractController
         private readonly ContactService $contactService,
         private readonly KizeoClientListSyncService $kizeoClientSync,
         private readonly ContratPdfService $contratPdfService,
+        private readonly EquipementBulkGeneratorService $bulkGenerator,
+        private readonly EquipementInsertService $equipementInsertService,
+        private readonly KizeoEquipmentSyncService $kizeoEquipmentSync,
     ) {
     }
 
@@ -471,7 +478,7 @@ class ContratEntretienController extends AbstractController
     /**
      * API JSON : statistiques équipements d'un contrat.
      *
-     * URL : /contrats/{agencyCode}/{id}/api/equip-stats
+     * URL : /{agencyCode}/{id}/api/equip-stats
      */
     #[Route('/{agencyCode}/{id}/api/equip-stats', name: 'app_contrat_entretien_api_equip_stats', requirements: ['id' => '\d+'], methods: ['GET'])]
     public function apiEquipStats(string $agencyCode, int $id): JsonResponse
@@ -604,5 +611,342 @@ class ContratEntretienController extends AbstractController
         }
 
         return $normalized;
+    }
+
+    // ============================================================================
+    //  MÉTHODE 1 — Formulaire de saisie (choix mode + lignes)
+    // ============================================================================
+
+    #[Route(
+        '/{agencyCode}/{contratId}/bulk-equipements',
+        name: 'app_contrat_entretien_bulk_equipements',
+        requirements: ['contratId' => '\d+'],
+        methods: ['GET', 'POST'],
+    )]
+    public function bulkEquipements(
+        string $agencyCode,
+        int $contratId,
+        Request $request,
+    ): Response {
+        $agencyCode = strtoupper($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::EDIT, $agencyCode);
+
+        // Récupérer le contrat
+        $contrat = $this->contratService->getContratById($agencyCode, $contratId);
+        if (!$contrat) {
+            throw $this->createNotFoundException('Contrat introuvable.');
+        }
+
+        // Récupérer les infos client
+        $clientInfo = null;
+        if (!empty($contrat['contact_id'])) {
+            $clientInfo = $this->contactService->findById($agencyCode, (int) $contrat['contact_id']);
+        }
+
+        // id_contact métier (string, référence Kizeo)
+        $idContact = $contrat['id_contact'] ?? '';
+        $contactId = (int) ($contrat['contact_id'] ?? 0);
+        $nombreVisitesContrat = (int) ($contrat['nombre_visite'] ?? 1);
+
+        // Compter les équipements existants
+        $existingCount = $this->equipementInsertService->countExistingEquipements(
+            $agencyCode,
+            $idContact,
+            date('Y')
+        );
+
+        // Si POST → générer et passer à la prévisualisation
+        if ($request->isMethod('POST')) {
+            $formData = $request->request->all('bulk');
+
+            // Injecter les données du contrat dans le form data
+            $formData['contact_id'] = $contactId;
+            $formData['id_contact'] = $idContact;
+            $formData['contrat_id'] = $contratId;
+            $formData['annee'] = $formData['annee'] ?? date('Y');
+
+            $dto = EquipementBulkDTO::fromRequest($formData, $agencyCode);
+
+            // Validation
+            $errors = $dto->validate();
+            if (!empty($errors)) {
+                foreach ($errors as $error) {
+                    $this->addFlash('danger', $error);
+                }
+                return $this->redirectToRoute('app_contrat_entretien_bulk_equipements', [
+                    'agencyCode' => $agencyCode,
+                    'contratId'  => $contratId,
+                ]);
+            }
+
+            // Génération en mémoire
+            $nombreVisitesContrat = (int) ($contrat['nombre_visite'] ?? 1);
+            $result = $this->bulkGenerator->generate($dto, $nombreVisitesContrat);
+
+            // Afficher les warnings
+            foreach ($result['warnings'] as $warning) {
+                $this->addFlash('warning', $warning);
+            }
+
+            if (empty($result['lines'])) {
+                $this->addFlash('danger', 'Aucune ligne générée. Vérifiez vos saisies.');
+                return $this->redirectToRoute('app_contrat_entretien_bulk_equipements', [
+                    'agencyCode' => $agencyCode,
+                    'contratId'  => $contratId,
+                ]);
+            }
+
+            // Vérification des doublons
+            $dedupResult = $this->equipementInsertService->checkDuplicates(
+                $agencyCode,
+                $idContact,
+                $dto->annee,
+                $result['lines']
+            );
+
+            if (!empty($dedupResult['duplicates'])) {
+                $this->addFlash('warning', sprintf(
+                    '%d doublon(s) détecté(s) — ces lignes ont été retirées de la prévisualisation.',
+                    count($dedupResult['duplicates'])
+                ));
+            }
+
+            // Stocker en session pour la prévisualisation
+            $session = $request->getSession();
+            $session->set('bulk_preview_lines', $dedupResult['clean']);
+            $session->set('bulk_preview_duplicates', $dedupResult['duplicates']);
+            $session->set('bulk_preview_stats', $result['stats']);
+            $session->set('bulk_preview_agency', $agencyCode);
+            $session->set('bulk_preview_contrat_id', $contratId);
+            $session->set('bulk_preview_id_contact', $idContact);
+            $session->set('bulk_preview_contact_id', $contactId);
+            $session->set('bulk_preview_annee', $dto->annee);
+            $session->set('bulk_preview_client_nom', $clientInfo['nom_contact'] ?? $clientInfo['raison_sociale'] ?? '');
+            $session->set('bulk_preview_client_cp', $clientInfo['code_postal'] ?? '');
+            $session->set('bulk_preview_client_ville', $clientInfo['ville'] ?? '');
+
+            return $this->redirectToRoute('app_contrat_entretien_preview_equipements', [
+                'agencyCode' => $agencyCode,
+                'contratId'  => $contratId,
+            ]);
+        }
+
+        return $this->render('contrat_entretien/bulk_equipements.html.twig', [
+            'agencyCode'    => $agencyCode,
+            'contrat'       => $contrat,
+            'clientInfo'    => $clientInfo,
+            'contratId'     => $contratId,
+            'idContact'     => $idContact,
+            'contactId'     => $contactId,
+            'existingCount' => $existingCount,
+            'annee'         => date('Y'),
+            'nombreVisitesContrat'  => $nombreVisitesContrat,                          // ← AJOUTER
+            'typePrefixes'          => EquipementBulkGeneratorService::getTypePrefixes()
+        ]);
+    }
+
+    // ============================================================================
+    //  MÉTHODE 2 — Prévisualisation du tableau éditable
+    // ============================================================================
+
+    #[Route(
+        '/{agencyCode}/{contratId}/preview-equipements',
+        name: 'app_contrat_entretien_preview_equipements',
+        requirements: ['contratId' => '\d+'],
+        methods: ['GET'],
+    )]
+    public function previewEquipements(
+        string $agencyCode,
+        int $contratId,
+        Request $request,
+    ): Response {
+        $agencyCode = strtoupper($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::EDIT, $agencyCode);
+
+        $session = $request->getSession();
+
+        // Vérifier que les données de preview existent en session
+        $lines = $session->get('bulk_preview_lines', []);
+        if (empty($lines)) {
+            $this->addFlash('danger', 'Aucune donnée de prévisualisation. Veuillez recommencer la saisie.');
+            return $this->redirectToRoute('app_contrat_entretien_bulk_equipements', [
+                'agencyCode' => $agencyCode,
+                'contratId'  => $contratId,
+            ]);
+        }
+
+        // Vérifier la cohérence agence + contrat
+        if ($session->get('bulk_preview_agency') !== $agencyCode
+            || $session->get('bulk_preview_contrat_id') !== $contratId) {
+            $this->addFlash('danger', 'Incohérence de session. Veuillez recommencer.');
+            return $this->redirectToRoute('app_contrat_entretien_bulk_equipements', [
+                'agencyCode' => $agencyCode,
+                'contratId'  => $contratId,
+            ]);
+        }
+
+        $contrat = $this->contratService->getContratById($agencyCode, $contratId);
+
+        // Récupérer les infos client depuis la session (pas de re-query BDD)
+        $clientNom = $session->get('bulk_preview_client_nom', '');
+        $clientCp = $session->get('bulk_preview_client_cp', '');
+        $clientVille = $session->get('bulk_preview_client_ville', '');
+
+        // Trier les lignes par visite puis par numéro
+        usort($lines, function ($a, $b) {
+            $visitOrder = ['CE1' => 1, 'CE2' => 2, 'CE3' => 3, 'CE4' => 4, 'CEA' => 5];
+            $va = $visitOrder[$a['visite']] ?? 9;
+            $vb = $visitOrder[$b['visite']] ?? 9;
+            if ($va !== $vb) return $va - $vb;
+            return strnatcmp($a['numero_equipement'], $b['numero_equipement']);
+        });
+
+        $stats = $session->get('bulk_preview_stats', []);
+        $duplicates = $session->get('bulk_preview_duplicates', []);
+
+        return $this->render('contrat_entretien/preview_equipements.html.twig', [
+            'agencyCode'  => $agencyCode,
+            'contratId'   => $contratId,
+            'contrat'     => $contrat,
+            'clientNom'   => $clientNom,
+            'clientCp'    => $clientCp,
+            'clientVille' => $clientVille,
+            'lines'       => $lines,
+            'stats'       => $stats,
+            'duplicates'  => $duplicates,
+            'annee'       => $session->get('bulk_preview_annee', date('Y')),
+        ]);
+    }
+
+    // ============================================================================
+    //  MÉTHODE 3 — Confirmation et insertion en BDD
+    // ============================================================================
+
+    #[Route(
+        '/{agencyCode}/{contratId}/insert-equipements',
+        name: 'app_contrat_entretien_insert_equipements',
+        requirements: ['contratId' => '\d+'],
+        methods: ['POST'],
+    )]
+    public function insertEquipements(
+        string $agencyCode,
+        int $contratId,
+        Request $request,
+    ): Response {
+        $agencyCode = strtoupper($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::EDIT, $agencyCode);
+
+        // Vérification CSRF
+        $token = $request->request->get('_token');
+        if (!$this->isCsrfTokenValid('insert_equipements_' . $contratId, $token)) {
+            $this->addFlash('danger', 'Token CSRF invalide. Veuillez réessayer.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id'         => $contratId,
+            ]);
+        }
+
+        $session = $request->getSession();
+
+        // Récupérer les lignes éditées depuis le POST (le JS envoie le tableau modifié)
+        $submittedLines = $request->request->all('lines');
+
+        // Si pas de lignes POST, fallback sur la session
+        if (empty($submittedLines)) {
+            $submittedLines = $session->get('bulk_preview_lines', []);
+        }
+
+        if (empty($submittedLines)) {
+            $this->addFlash('danger', 'Aucune ligne à insérer.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id'         => $contratId,
+            ]);
+        }
+
+        // Normaliser les lignes soumises
+        $linesToInsert = [];
+        foreach ($submittedLines as $line) {
+            $linesToInsert[] = [
+                'id_contact'          => (int) ($line['id_contact'] ?? $session->get('bulk_preview_id_contact', 0)),
+                'numero_equipement'   => trim($line['numero_equipement'] ?? ''),
+                'libelle_equipement'  => trim($line['libelle_equipement'] ?? ''),
+                'visite'              => trim($line['visite'] ?? 'CEA'),
+                'annee'               => trim($line['annee'] ?? date('Y')),
+                'marque'              => trim($line['marque'] ?? ''),
+                'mode_fonctionnement' => trim($line['mode_fonctionnement'] ?? ''),
+                'repere_site_client'  => trim($line['repere_site_client'] ?? ''),
+                'is_hors_contrat'     => (int) ($line['is_hors_contrat'] ?? 0),
+                'is_archive'          => 0,
+            ];
+        }
+
+        // Filtrer les lignes vides (numéro vide)
+        $linesToInsert = array_filter($linesToInsert, fn($l) => !empty($l['numero_equipement']));
+
+        if (empty($linesToInsert)) {
+            $this->addFlash('danger', 'Toutes les lignes sont vides après filtrage.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id'         => $contratId,
+            ]);
+        }
+
+        // Insertion batch
+        $result = $this->equipementInsertService->insertBatch($agencyCode, array_values($linesToInsert));
+
+        // Nettoyer la session
+        $session->remove('bulk_preview_lines');
+        $session->remove('bulk_preview_duplicates');
+        $session->remove('bulk_preview_stats');
+        $session->remove('bulk_preview_agency');
+        $session->remove('bulk_preview_contrat_id');
+        $session->remove('bulk_preview_id_contact');
+        $session->remove('bulk_preview_contact_id');
+        $session->remove('bulk_preview_annee');
+        $session->remove('bulk_preview_client_nom');
+        $session->remove('bulk_preview_client_cp');
+        $session->remove('bulk_preview_client_ville');
+
+        if (!empty($result['errors'])) {
+            foreach ($result['errors'] as $error) {
+                $this->addFlash('danger', $error);
+            }
+        }
+
+        if ($result['inserted'] > 0) {
+            $this->addFlash('success', sprintf(
+                '%d équipement(s) créé(s) avec succès en BDD.',
+                $result['inserted']
+            ));
+
+            // Phase 3.7 — Sync immédiat vers Kizeo
+            $syncResult = $this->kizeoEquipmentSync->syncForAgency($agencyCode);
+
+            if ($syncResult['success']) {
+                $s = $syncResult['stats'];
+                $this->addFlash('info', sprintf(
+                    'Liste Kizeo synchronisée : %d ajoutés, %d mis à jour, %d conservés, %d supprimés — %d items total.',
+                    $s['ajoutes'],
+                    $s['mis_a_jour'],
+                    $s['conserves'],
+                    $s['supprimes'],
+                    $s['total_envoyes']
+                ));
+            } else {
+                // Non bloquant : les équipements sont en BDD, le sync CRON rattrapera
+                $this->addFlash('warning', sprintf(
+                    'Équipements insérés en BDD mais sync Kizeo échouée : %s. Le CRON rattrapera.',
+                    $syncResult['error'] ?? 'erreur inconnue'
+                ));
+            }
+        } else {
+            $this->addFlash('warning', 'Aucun équipement inséré.');
+        }
+
+        return $this->redirectToRoute('app_contrat_entretien_show', [
+            'agencyCode' => $agencyCode,
+            'id'         => $contratId,
+        ]);
     }
 }

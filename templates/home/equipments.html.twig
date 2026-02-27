@@ -264,6 +264,65 @@
                             <th style="width: 8%;">Type</th>
                             <th style="width: 14%;">Actions</th>
                         </tr>
+                        <tr class="table-light" id="filterRow">
+                            <td></td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm" 
+                                       id="filterNumero" placeholder="Filtrer..." 
+                                       data-col="1" data-type="text">
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm" 
+                                       id="filterLibelle" placeholder="Filtrer..." 
+                                       data-col="2" data-type="text">
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" 
+                                        id="filterMarque" data-col="3" data-type="select">
+                                    <option value="">Tous</option>
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" 
+                                        id="filterStatut" data-col="4" data-type="select">
+                                    <option value="">Tous</option>
+                                    <option value="A">A — Bon état</option>
+                                    <option value="B">B — Préventif</option>
+                                    <option value="C">C — Curatif</option>
+                                    <option value="D">D — Inaccessible</option>
+                                    <option value="E">E — À l'arrêt</option>
+                                    <option value="F">F — Mis à l'arrêt</option>
+                                    <option value="G">G — Non présent</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm" 
+                                       id="filterEtat" placeholder="Filtrer..." 
+                                       data-col="5" data-type="text">
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" 
+                                        id="filterAnomalies" data-col="6" data-type="select-anomalies">
+                                    <option value="">Tous</option>
+                                    <option value="with">Avec anomalies</option>
+                                    <option value="without">Sans anomalie</option>
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" 
+                                        id="filterType" data-col="7" data-type="select">
+                                    <option value="">Tous</option>
+                                    <option value="AC">AC</option>
+                                    <option value="HC">HC</option>
+                                </select>
+                            </td>
+                            <td>
+                                <button class="btn btn-outline-secondary btn-sm w-100" 
+                                        id="btnResetFilters" title="Réinitialiser les filtres">
+                                    <i class="bi bi-x-circle"></i>
+                                </button>
+                            </td>
+                        </tr>
                     </thead>
                     <tbody>
                         {% for equip in equipments %}
@@ -279,7 +338,7 @@
                                 <td>{{ equip.marque ?: '—' }}</td>
 
                                 {# Colonne Statut — Logo PNG #}
-                                <td class="text-center">
+                                <td class="text-center" data-statut="{{ equip.statut_equipement|default('') }}">
                                     {% set statut = equip.statut_equipement|default('') %}
                                     {% if statut == 'A' %}
                                         <img src="{{ asset('img/logos-statut/vert.png') }}" alt="Bon état" title="A — Bon état de fonctionnement" width="24" height="24">
@@ -310,16 +369,16 @@
                                 </td>
 
                                 {# Colonne Anomalies #}
-                                <td>
+                                <td data-has-anomalie="{{ equip.anomalies ? 'yes' : 'no' }}">
                                     {% if equip.anomalies %}
                                         <small class="text-danger">{{ equip.anomalies|slice(0, 100) }}{% if equip.anomalies|length > 100 %}...{% endif %}</small>
                                     {% else %}
-                                        <span class="text-success"><i class="bi bi-check"></i> RAS</span>
+                                        <span class="text-success"><i class="bi bi-check"></i> Rien à signaler le jour de la visite</span>
                                     {% endif %}
                                 </td>
 
                                 {# Colonne Type #}
-                                <td>
+                                <td data-equip-type="{{ equip.is_hors_contrat ? 'HC' : 'AC' }}">
                                     {% if equip.is_hors_contrat %}
                                         <span class="badge bg-warning text-dark">HC</span>
                                     {% else %}
@@ -573,5 +632,122 @@
             form.action = baseUrl.replace('99999999', equipId);
         });
     }
+
+    // =========================================================================
+    // Filtres de colonnes du tableau Équipements
+    // =========================================================================
+    (function() {
+        const table = document.querySelector('.table-hover');
+        if (!table) return;
+
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+
+        // Auto-populate Marque select from existing data
+        const marqueSelect = document.getElementById('filterMarque');
+        if (marqueSelect) {
+            const marques = new Set();
+            rows.forEach(row => {
+                const val = row.cells[3]?.textContent.trim();
+                if (val && val !== '—') marques.add(val);
+            });
+            Array.from(marques).sort().forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                marqueSelect.appendChild(opt);
+            });
+        }
+
+        // Filter logic
+        function applyFilters() {
+            const filterNumero = document.getElementById('filterNumero').value.toLowerCase();
+            const filterLibelle = document.getElementById('filterLibelle').value.toLowerCase();
+            const filterMarque = document.getElementById('filterMarque').value;
+            const filterStatut = document.getElementById('filterStatut').value;
+            const filterEtat = document.getElementById('filterEtat').value.toLowerCase();
+            const filterAnomalies = document.getElementById('filterAnomalies').value;
+            const filterType = document.getElementById('filterType').value;
+
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                let show = true;
+
+                // Numéro (col 1) — text search
+                if (filterNumero) {
+                    const text = row.cells[1]?.textContent.toLowerCase() || '';
+                    if (!text.includes(filterNumero)) show = false;
+                }
+
+                // Libellé (col 2) — text search
+                if (show && filterLibelle) {
+                    const text = row.cells[2]?.textContent.toLowerCase() || '';
+                    if (!text.includes(filterLibelle)) show = false;
+                }
+
+                // Marque (col 3) — exact match
+                if (show && filterMarque) {
+                    const text = row.cells[3]?.textContent.trim() || '';
+                    if (text !== filterMarque) show = false;
+                }
+
+                // Statut (col 4) — data attribute
+                if (show && filterStatut) {
+                    const statut = row.cells[4]?.getAttribute('data-statut') || '';
+                    if (statut !== filterStatut) show = false;
+                }
+
+                // État (col 5) — text search
+                if (show && filterEtat) {
+                    const text = row.cells[5]?.textContent.toLowerCase() || '';
+                    if (!text.includes(filterEtat)) show = false;
+                }
+
+                // Anomalies (col 6) — with/without
+                if (show && filterAnomalies) {
+                    const hasAnomalie = row.cells[6]?.getAttribute('data-has-anomalie') || '';
+                    if (filterAnomalies === 'with' && hasAnomalie !== 'yes') show = false;
+                    if (filterAnomalies === 'without' && hasAnomalie !== 'no') show = false;
+                }
+
+                // Type (col 7) — data attribute
+                if (show && filterType) {
+                    const type = row.cells[7]?.getAttribute('data-equip-type') || '';
+                    if (type !== filterType) show = false;
+                }
+
+                row.style.display = show ? '' : 'none';
+                if (show) visibleCount++;
+            });
+
+            // Update counter in card-header
+            const header = table.closest('.card')?.querySelector('.card-header .text-muted');
+            if (header) {
+                const totalOnPage = rows.length;
+                if (visibleCount < totalOnPage) {
+                    header.innerHTML = header.innerHTML.replace(
+                        /\(.*?\)/,
+                        `(${visibleCount} / ${totalOnPage} affichés)`
+                    );
+                }
+            }
+        }
+
+        // Bind events
+        document.querySelectorAll('#filterRow input[type="text"]').forEach(input => {
+            input.addEventListener('input', applyFilters);
+        });
+        document.querySelectorAll('#filterRow select').forEach(select => {
+            select.addEventListener('change', applyFilters);
+        });
+
+        // Reset
+        document.getElementById('btnResetFilters')?.addEventListener('click', function() {
+            document.querySelectorAll('#filterRow input[type="text"]').forEach(i => i.value = '');
+            document.querySelectorAll('#filterRow select').forEach(s => s.value = '');
+            applyFilters();
+        });
+    })();
 </script>
 {% endblock %}

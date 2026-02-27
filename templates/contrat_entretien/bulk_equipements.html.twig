@@ -1,0 +1,353 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Générer des équipements — {{ agencyCode }}{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-4">
+
+    {# ── Breadcrumb ── #}
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('app_contrat_entretien_index', {agencyCode: agencyCode}) }}">Contrats {{ agencyCode }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ path('app_contrat_entretien_show', {agencyCode: agencyCode, id: contratId}) }}">Contrat n°{{ contrat.numero_contrat }}</a></li>
+            <li class="breadcrumb-item active">Générer des équipements</li>
+        </ol>
+    </nav>
+
+    {# ── Bandeau client ── #}
+    {% if clientInfo %}
+    <div class="alert alert-info d-flex align-items-center mb-4">
+        <i class="bi bi-person-circle fs-4 me-3"></i>
+        <div>
+            <strong>{{ clientInfo.nom_contact|default(clientInfo.raison_sociale|default('Client')) }}</strong>
+            {% if clientInfo.code_postal is defined %} — {{ clientInfo.code_postal }} {{ clientInfo.ville|default('') }}{% endif %}
+            <br><small class="text-muted">id_contact : {{ idContact }} · Contrat n°{{ contrat.numero_contrat }} · {{ agencyCode }} · {{ nombreVisitesContrat }} visite(s)/an</small>
+        </div>
+    </div>
+    {% endif %}
+
+    {# ── Compteur existant ── #}
+    {% if existingCount > 0 %}
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        Ce client possède déjà <strong>{{ existingCount }}</strong> ligne(s) d'équipement pour l'année {{ annee }}.
+        Les doublons seront automatiquement détectés avant insertion.
+    </div>
+    {% endif %}
+
+    <h2 class="mb-4">
+        <i class="bi bi-gear-wide-connected me-2"></i>
+        Génération d'équipements en masse
+    </h2>
+
+    <form method="post"
+          action="{{ path('app_contrat_entretien_bulk_equipements', {agencyCode: agencyCode, contratId: contratId}) }}"
+          id="formBulk">
+
+        {# ── Toggle Mode 1 / Mode 2 ── #}
+        <div class="card mb-4">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="tab-mode1" data-bs-toggle="tab"
+                                data-bs-target="#pane-mode1" type="button" role="tab">
+                            <i class="bi bi-list-ol me-1"></i> Mode 1 — Type + Quantité
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tab-mode2" data-bs-toggle="tab"
+                                data-bs-target="#pane-mode2" type="button" role="tab">
+                            <i class="bi bi-map me-1"></i> Mode 2 — Plan de site
+                        </button>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="card-body tab-content">
+
+                {# ============================================================ #}
+                {#  MODE 1 — Type + Quantité                                    #}
+                {# ============================================================ #}
+                <div class="tab-pane fade show active" id="pane-mode1" role="tabpanel">
+                    <p class="text-muted mb-3">
+                        Sélectionne un type d'équipement dans la liste déroulante — le libellé se remplit automatiquement. Le système génère les numéros séquentiels et ventile par visite.
+                    </p>
+
+                    {% if nombreVisitesContrat >= 2 %}
+                    <div class="alert alert-info small py-2 mb-3">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Ce contrat prévoit <strong>{{ nombreVisitesContrat }} visites/an</strong>.
+                        Les équipements à 1 visite seront automatiquement en <strong>CE1</strong> (pas CEA).
+                        CEA est réservé aux contrats à visite unique.
+                    </div>
+                    {% endif %}
+
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle" id="tableMode1">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:180px">Type <span class="text-danger">*</span></th>
+                                    <th style="width:200px">Libellé <span class="text-danger">*</span></th>
+                                    <th style="width:80px">Qté <span class="text-danger">*</span></th>
+                                    <th style="width:160px">Visites/an <span class="text-danger">*</span></th>
+                                    <th style="width:130px">Marque</th>
+                                    <th style="width:150px">Mode fonct.</th>
+                                    <th style="width:150px">Repère site</th>
+                                    <th style="width:50px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="bodyMode1">
+                                <tr data-row="0">
+                                    <td>
+                                        <select class="form-select form-select-sm select-prefix" name="bulk[lignes_mode1][0][prefix]" required>
+                                            <option value="">— Choisir —</option>
+                                            {% for prefix, libelle in typePrefixes %}
+                                            <option value="{{ prefix }}" data-libelle="{{ libelle }}">{{ prefix }} — {{ libelle }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </td>
+                                    <td><input type="text" class="form-control form-control-sm input-libelle" name="bulk[lignes_mode1][0][libelle]" placeholder="Auto-rempli" required></td>
+                                    <td><input type="number" class="form-control form-control-sm" name="bulk[lignes_mode1][0][quantite]" value="1" min="1" max="999" required></td>
+                                    <td>
+                                        <select class="form-select form-select-sm" name="bulk[lignes_mode1][0][nb_visites]" required>
+                                            <option value="1">1 — CE1</option>
+                                            <option value="1_cea">1 — CEA (annuel unique)</option>
+                                            <option value="2" selected>2 — CE1+CE2</option>
+                                            <option value="3">3 — CE1→CE3</option>
+                                            <option value="4">4 — CE1→CE4</option>
+                                        </select>
+                                    </td>
+                                    <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode1][0][marque]" placeholder="Crawford…"></td>
+                                    <td>
+                                        <select class="form-select form-select-sm" name="bulk[lignes_mode1][0][mode_fonctionnement]">
+                                            <option value="">—</option>
+                                            <option value="Automatique">Automatique</option>
+                                            <option value="Manuel">Manuel</option>
+                                            <option value="Semi-automatique">Semi-automatique</option>
+                                        </select>
+                                    </td>
+                                    <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode1][0][repere_site_client]" placeholder="Quai 3…"></td>
+                                    <td><button type="button" class="btn btn-sm btn-outline-danger btn-remove-row" title="Supprimer"><i class="bi bi-trash"></i></button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddMode1">
+                        <i class="bi bi-plus-circle me-1"></i> Ajouter un type
+                    </button>
+                </div>
+
+                {# ============================================================ #}
+                {#  MODE 2 — Plan de site                                       #}
+                {# ============================================================ #}
+                <div class="tab-pane fade" id="pane-mode2" role="tabpanel">
+                    <p class="text-muted mb-3">
+                        Saisis directement les identifiants : individuels (<code>SEC06</code>) ou plages (<code>SEC01-SEC03</code> ou <code>SEC01→SEC03</code>).
+                    </p>
+
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle" id="tableMode2">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:220px">Plage / Identifiant <span class="text-danger">*</span></th>
+                                    <th style="width:200px">Libellé <span class="text-danger">*</span></th>
+                                    <th style="width:160px">Visites/an <span class="text-danger">*</span></th>
+                                    <th style="width:130px">Marque</th>
+                                    <th style="width:150px">Mode fonct.</th>
+                                    <th style="width:150px">Repère site</th>
+                                    <th style="width:50px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="bodyMode2">
+                                <tr data-row="0">
+                                    <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode2][0][plage]" placeholder="SEC01-SEC03 ou BLE01"></td>
+                                    <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode2][0][libelle]" placeholder="Porte sectionnelle"></td>
+                                    <td>
+                                        <select class="form-select form-select-sm" name="bulk[lignes_mode2][0][nb_visites]">
+                                            <option value="1">1 — CE1</option>
+                                            <option value="1_cea">1 — CEA (annuel unique)</option>
+                                            <option value="2" selected>2 — CE1+CE2</option>
+                                            <option value="3">3 — CE1→CE3</option>
+                                            <option value="4">4 — CE1→CE4</option>
+                                        </select>
+                                    </td>
+                                    <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode2][0][marque]" placeholder="Crawford…"></td>
+                                    <td>
+                                        <select class="form-select form-select-sm" name="bulk[lignes_mode2][0][mode_fonctionnement]">
+                                            <option value="">—</option>
+                                            <option value="Automatique">Automatique</option>
+                                            <option value="Manuel">Manuel</option>
+                                            <option value="Semi-automatique">Semi-automatique</option>
+                                        </select>
+                                    </td>
+                                    <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode2][0][repere_site_client]" placeholder="Quai 3…"></td>
+                                    <td><button type="button" class="btn btn-sm btn-outline-danger btn-remove-row" title="Supprimer"><i class="bi bi-trash"></i></button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddMode2">
+                        <i class="bi bi-plus-circle me-1"></i> Ajouter une ligne
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+        {# ── Année de référence ── #}
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <label for="inputAnnee" class="form-label">Année de référence</label>
+                <input type="text" class="form-control" id="inputAnnee" name="bulk[annee]"
+                       value="{{ annee }}" maxlength="4" pattern="\d{4}">
+            </div>
+        </div>
+
+        <input type="hidden" name="bulk[mode]" id="inputMode" value="mode1">
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-eye me-1"></i> Prévisualiser
+            </button>
+            <a href="{{ path('app_contrat_entretien_show', {agencyCode: agencyCode, id: contratId}) }}"
+               class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i> Retour au contrat
+            </a>
+        </div>
+
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+
+    // --- Mapping préfixe → libellé (injecté depuis Twig) ---
+    const typePrefixes = {
+        {% for prefix, libelle in typePrefixes %}
+        '{{ prefix }}': '{{ libelle }}',
+        {% endfor %}
+    };
+
+    // --- Options HTML pour le select préfixe ---
+    function getPrefixOptionsHtml() {
+        let html = '<option value="">— Choisir —</option>';
+        for (const [prefix, libelle] of Object.entries(typePrefixes)) {
+            html += `<option value="${prefix}" data-libelle="${libelle}">${prefix} — ${libelle}</option>`;
+        }
+        return html;
+    }
+
+    // --- Options HTML pour le select visites ---
+    function getVisitesOptionsHtml() {
+        return `
+            <option value="1">1 — CE1</option>
+            <option value="1_cea">1 — CEA (annuel unique)</option>
+            <option value="2" selected>2 — CE1+CE2</option>
+            <option value="3">3 — CE1→CE3</option>
+            <option value="4">4 — CE1→CE4</option>
+        `;
+    }
+
+    // --- Auto-remplissage libellé quand on change le préfixe ---
+    document.addEventListener('change', function(e) {
+        if (!e.target.classList.contains('select-prefix')) return;
+
+        const selected = e.target.options[e.target.selectedIndex];
+        const libelle = selected.getAttribute('data-libelle') || '';
+        const tr = e.target.closest('tr');
+        const libelleInput = tr.querySelector('.input-libelle');
+        if (libelleInput) {
+            libelleInput.value = libelle;
+        }
+    });
+
+    let rowCountMode1 = 1;
+    let rowCountMode2 = 1;
+
+    const inputMode = document.getElementById('inputMode');
+    document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
+        tab.addEventListener('shown.bs.tab', function(e) {
+            inputMode.value = e.target.id === 'tab-mode1' ? 'mode1' : 'mode2';
+        });
+    });
+
+    // --- Ajouter ligne Mode 1 ---
+    document.getElementById('btnAddMode1').addEventListener('click', function() {
+        const idx = rowCountMode1++;
+        const tbody = document.getElementById('bodyMode1');
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-row', idx);
+        tr.innerHTML = `
+            <td>
+                <select class="form-select form-select-sm select-prefix" name="bulk[lignes_mode1][${idx}][prefix]" required>
+                    ${getPrefixOptionsHtml()}
+                </select>
+            </td>
+            <td><input type="text" class="form-control form-control-sm input-libelle" name="bulk[lignes_mode1][${idx}][libelle]" placeholder="Auto-rempli" required></td>
+            <td><input type="number" class="form-control form-control-sm" name="bulk[lignes_mode1][${idx}][quantite]" value="1" min="1" max="999" required></td>
+            <td>
+                <select class="form-select form-select-sm" name="bulk[lignes_mode1][${idx}][nb_visites]" required>
+                    ${getVisitesOptionsHtml()}
+                </select>
+            </td>
+            <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode1][${idx}][marque]"></td>
+            <td>
+                <select class="form-select form-select-sm" name="bulk[lignes_mode1][${idx}][mode_fonctionnement]">
+                    <option value="">—</option>
+                    <option value="Automatique">Automatique</option>
+                    <option value="Manuel">Manuel</option>
+                    <option value="Semi-automatique">Semi-automatique</option>
+                </select>
+            </td>
+            <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode1][${idx}][repere_site_client]"></td>
+            <td><button type="button" class="btn btn-sm btn-outline-danger btn-remove-row"><i class="bi bi-trash"></i></button></td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // --- Ajouter ligne Mode 2 ---
+    document.getElementById('btnAddMode2').addEventListener('click', function() {
+        const idx = rowCountMode2++;
+        const tbody = document.getElementById('bodyMode2');
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-row', idx);
+        tr.innerHTML = `
+            <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode2][${idx}][plage]" placeholder="MIP01-MIP10"></td>
+            <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode2][${idx}][libelle]" placeholder="Mini-pont de liaison"></td>
+            <td>
+                <select class="form-select form-select-sm" name="bulk[lignes_mode2][${idx}][nb_visites]">
+                    ${getVisitesOptionsHtml()}
+                </select>
+            </td>
+            <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode2][${idx}][marque]"></td>
+            <td>
+                <select class="form-select form-select-sm" name="bulk[lignes_mode2][${idx}][mode_fonctionnement]">
+                    <option value="">—</option>
+                    <option value="Automatique">Automatique</option>
+                    <option value="Manuel">Manuel</option>
+                    <option value="Semi-automatique">Semi-automatique</option>
+                </select>
+            </td>
+            <td><input type="text" class="form-control form-control-sm" name="bulk[lignes_mode2][${idx}][repere_site_client]"></td>
+            <td><button type="button" class="btn btn-sm btn-outline-danger btn-remove-row"><i class="bi bi-trash"></i></button></td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // --- Supprimer une ligne ---
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-remove-row');
+        if (!btn) return;
+        const tr = btn.closest('tr');
+        const tbody = tr.closest('tbody');
+        if (tbody.querySelectorAll('tr').length <= 1) {
+            alert('Il faut au moins une ligne.');
+            return;
+        }
+        tr.remove();
+    });
+});
+</script>
+{% endblock %}

@@ -47,6 +47,7 @@ class EquipementController extends AbstractController
      * Seuls ces champs peuvent être modifiés via le formulaire.
      */
     private const EDITABLE_FIELDS = [
+        'numero_equipement',
         'numero_equipement_client',
         'libelle_equipement',
         'marque',

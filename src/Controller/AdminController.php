@@ -409,6 +409,12 @@ class AdminController extends AbstractController
         $user->setIsActive($isActive);
         $user->setUpdatedAt(new \DateTime());
 
+        if (!$isNew) {
+            $this->em->getConnection()->executeStatement(
+                'DELETE FROM user_contrat_cadre WHERE user_id = :uid',
+                ['uid' => $user->getId()]
+            );
+        }
         // Synchronisation des associations CC (vide + recrée proprement)
         $user->syncContratCadres($ccAdminIds, $ccUserIds, $allCcById);
 

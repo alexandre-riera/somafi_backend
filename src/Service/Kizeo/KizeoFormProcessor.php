@@ -388,6 +388,11 @@ class KizeoFormProcessor
                 $anomalies[] = trim($fieldData['value']);
             }
         }
+
+        $zoneTexte = $this->getEquipDataValue($equipData, 'zone_de_texte2');
+        if (is_string($zoneTexte) && trim($zoneTexte) !== '') {
+            $anomalies[] = trim($zoneTexte);
+        }
         
         return !empty($anomalies) ? implode(' | ', $anomalies) : null;
     }
