@@ -236,7 +236,7 @@ class KizeoEquipmentSyncService
     private function getKizeoList(int $listId): ?array
     {
         try {
-            $response = $this->httpClient->request('GET', "{$this->apiUrl}/rest/v3/lists/{$listId}", [
+            $response = $this->httpClient->request('GET', "{$this->apiUrl}/lists/{$listId}", [
                 'headers' => [
                     'Authorization' => $this->apiToken,
                     'Content-Type'  => 'application/json',
@@ -265,7 +265,7 @@ class KizeoEquipmentSyncService
     private function putKizeoList(int $listId, array $items): bool
     {
         try {
-            $response = $this->httpClient->request('PUT', "{$this->apiUrl}/rest/v3/lists/{$listId}", [
+            $response = $this->httpClient->request('PUT', "{$this->apiUrl}/lists/{$listId}", [
                 'headers' => [
                     'Authorization' => $this->apiToken,
                     'Content-Type'  => 'application/json',
