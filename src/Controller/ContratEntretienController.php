@@ -217,7 +217,10 @@ class ContratEntretienController extends AbstractController
                 }
 
                 // 2. Insertion en BDD
-                $userId = $this->getUser()?->getId();
+                /** @var \App\Entity\User|null $user */
+                $user = $this->getUser();
+                $userId = $user?->getId();
+                
                 $contratId = $this->contratService->insertContrat(
                     $agencyCode,
                     $dto,
