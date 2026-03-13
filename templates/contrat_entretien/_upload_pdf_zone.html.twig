@@ -1,0 +1,127 @@
+{# templates/contrat_entretien/_upload_pdf_zone.html.twig #}
+{# Zone d'upload drag & drop pour le PDF contrat #}
+
+<form method="post" 
+      action="{{ path('app_contrat_entretien_upload_pdf', {agencyCode: agencyCode, id: contrat.id}) }}"
+      enctype="multipart/form-data"
+      id="pdfUploadForm">
+    <input type="hidden" name="_token" value="{{ csrf_token('upload-pdf-' ~ contrat.id) }}">
+
+    <div id="dropZone" class="border border-2 border-dashed rounded p-3 text-center position-relative"
+         style="border-color: #dee2e6; cursor: pointer; transition: all 0.2s;">
+
+        {# État par défaut #}
+        <div id="dropDefault">
+            <i class="bi bi-cloud-arrow-up fs-3 text-muted"></i>
+            <p class="mb-1 text-muted small">
+                Glisser-déposer un fichier PDF ici
+            </p>
+            <p class="mb-0">
+                <span class="text-primary small" style="cursor: pointer;">ou cliquer pour sélectionner</span>
+            </p>
+            <p class="text-muted mb-0" style="font-size: 0.75rem;">PDF uniquement — 10 Mo max</p>
+        </div>
+
+        {# État fichier sélectionné #}
+        <div id="dropSelected" class="d-none">
+            <i class="bi bi-file-earmark-pdf fs-3 text-danger"></i>
+            <p class="mb-1 fw-bold small" id="selectedFileName"></p>
+            <p class="text-muted mb-0 small" id="selectedFileSize"></p>
+        </div>
+
+        <input type="file" name="contrat_pdf_file" id="pdfFileInput" 
+               accept=".pdf,application/pdf" 
+               class="position-absolute top-0 start-0 w-100 h-100" 
+               style="opacity: 0; cursor: pointer;">
+    </div>
+
+    <div id="uploadActions" class="d-none mt-2 d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-primary">
+            <i class="bi bi-upload"></i> Uploader
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="cancelUpload">
+            Annuler
+        </button>
+    </div>
+</form>
+
+<script>
+(function() {
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('pdfFileInput');
+    const defaultView = document.getElementById('dropDefault');
+    const selectedView = document.getElementById('dropSelected');
+    const fileName = document.getElementById('selectedFileName');
+    const fileSize = document.getElementById('selectedFileSize');
+    const actions = document.getElementById('uploadActions');
+    const cancelBtn = document.getElementById('cancelUpload');
+
+    // Drag & drop
+    ['dragenter', 'dragover'].forEach(e => {
+        dropZone.addEventListener(e, function(evt) {
+            evt.preventDefault();
+            dropZone.style.borderColor = '#0d6efd';
+            dropZone.style.backgroundColor = '#f0f7ff';
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(e => {
+        dropZone.addEventListener(e, function(evt) {
+            evt.preventDefault();
+            dropZone.style.borderColor = '#dee2e6';
+            dropZone.style.backgroundColor = '';
+        });
+    });
+
+    dropZone.addEventListener('drop', function(evt) {
+        const files = evt.dataTransfer.files;
+        if (files.length > 0) {
+            fileInput.files = files;
+            showSelected(files[0]);
+        }
+    });
+
+    // Sélection fichier classique
+    fileInput.addEventListener('change', function() {
+        if (this.files.length > 0) {
+            showSelected(this.files[0]);
+        }
+    });
+
+    // Annuler
+    cancelBtn.addEventListener('click', function() {
+        fileInput.value = '';
+        defaultView.classList.remove('d-none');
+        selectedView.classList.add('d-none');
+        actions.classList.add('d-none');
+    });
+
+    function showSelected(file) {
+        // Vérifier le type
+        if (file.type !== 'application/pdf') {
+            alert('Seuls les fichiers PDF sont acceptés.');
+            fileInput.value = '';
+            return;
+        }
+
+        // Vérifier la taille (10 Mo)
+        if (file.size > 10 * 1024 * 1024) {
+            alert('Le fichier ne doit pas dépasser 10 Mo.');
+            fileInput.value = '';
+            return;
+        }
+
+        fileName.textContent = file.name;
+        fileSize.textContent = formatSize(file.size);
+        defaultView.classList.add('d-none');
+        selectedView.classList.remove('d-none');
+        actions.classList.remove('d-none');
+    }
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' o';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' Ko';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' Mo';
+    }
+})();
+</script>

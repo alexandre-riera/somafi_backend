@@ -552,4 +552,103 @@ class ContratEntretienService
 
         return $this->connection->fetchAllAssociative($sql, $params);
     }
+
+    /**
+     * Met à jour le chemin du PDF contrat en BDD.
+     */
+    public function updateContratPdfPath(string $agencyCode, int $contratId, ?string $pdfPath): void
+    {
+        $table = $this->getContratTableName($agencyCode);
+
+        $this->connection->executeStatement(
+            "UPDATE {$table} SET contrat_pdf_path = :path, updated_at = NOW() WHERE id = :id",
+            [
+                'path' => $pdfPath,
+                'id' => $contratId,
+            ]
+        );
+    }
+
+    // -------------------------------------------------------
+    // AVENANTS
+    // -------------------------------------------------------
+
+    /**
+     * Génère le prochain numéro d'avenant (AV-001, AV-002, ...).
+     */
+    public function getNextNumeroAvenant(string $agencyCode, int $contratId): string
+    {
+        $table = $this->getAvenantTableName($agencyCode);
+
+        $count = (int) $this->connection->fetchOne(
+            "SELECT COUNT(*) FROM {$table} WHERE contrat_id = :contratId",
+            ['contratId' => $contratId]
+        );
+
+        return sprintf('AV-%03d', $count + 1);
+    }
+
+    /**
+     * Insère un avenant en BDD.
+     *
+     * @return int L'ID de l'avenant créé
+     */
+    public function insertAvenant(
+        string $agencyCode,
+        int $contratId,
+        string $numeroAvenant,
+        string $dateAvenant,
+        ?string $description,
+        string $pdfPath,
+    ): int {
+        $table = $this->getAvenantTableName($agencyCode);
+
+        $this->connection->insert($table, [
+            'contrat_id' => $contratId,
+            'numero_avenant' => $numeroAvenant,
+            'date_avenant' => $dateAvenant,
+            'description' => $description,
+            'pdf_path' => $pdfPath,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $lastId = (int) $this->connection->lastInsertId();
+
+        $this->logger->info('[ContratEntretien] Avenant créé.', [
+            'agency' => $agencyCode,
+            'contrat_id' => $contratId,
+            'avenant_id' => $lastId,
+            'numero' => $numeroAvenant,
+        ]);
+
+        return $lastId;
+    }
+
+    /**
+     * Récupère un avenant par son ID.
+     */
+    public function getAvenantById(string $agencyCode, int $avenantId): ?array
+    {
+        $table = $this->getAvenantTableName($agencyCode);
+
+        $result = $this->connection->fetchAssociative(
+            "SELECT * FROM {$table} WHERE id = :id",
+            ['id' => $avenantId]
+        );
+
+        return $result ?: null;
+    }
+
+    /**
+     * Supprime un avenant de la BDD.
+     */
+    public function deleteAvenant(string $agencyCode, int $avenantId): void
+    {
+        $table = $this->getAvenantTableName($agencyCode);
+
+        $this->connection->executeStatement(
+            "DELETE FROM {$table} WHERE id = :id",
+            ['id' => $avenantId]
+        );
+    }
 }

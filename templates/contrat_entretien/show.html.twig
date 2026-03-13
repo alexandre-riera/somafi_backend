@@ -142,18 +142,51 @@
                                 {% endif %}
                             </div>
                         </div>
-                        <div class="col-sm-6">
-                            <div class="detail-label">PDF du Contrat</div>
-                            <div class="detail-value">
-                                {% if contrat.contrat_pdf_path %}
-                                    <a href="{{ path('app_contrat_entretien_download_pdf', {agencyCode: agencyCode, id: contrat.id}) }}"
-                                       class="btn btn-sm btn-outline-primary" target="_blank">
-                                        <i class="bi bi-file-earmark-pdf"></i> Télécharger le contrat
+                        <div class="mb-3">
+                            <label class="text-muted text-uppercase small fw-bold">PDF du contrat</label>
+
+                            {% if contrat.contrat_pdf_path %}
+                                {# --- PDF existant : afficher + actions --- #}
+                                <div class="d-flex align-items-center gap-2 mt-1">
+                                    <a href="{{ path('app_contrat_entretien_download_pdf', {agencyCode: agencyCode, id: contrat.id}) }}" 
+                                    class="btn btn-sm btn-outline-danger" target="_blank">
+                                        <i class="bi bi-file-earmark-pdf"></i> Voir le PDF
                                     </a>
-                                {% else %}
-                                    <span class="text-muted">Non uploadé</span>
+
+                                    {% if is_granted('CONTRAT_EDIT', agencyCode) %}
+                                        {# Bouton remplacer #}
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                                onclick="document.getElementById('pdfUploadZone').classList.toggle('d-none')">
+                                            <i class="bi bi-arrow-repeat"></i> Remplacer
+                                        </button>
+
+                                        {# Bouton supprimer #}
+                                        <form method="post" 
+                                            action="{{ path('app_contrat_entretien_delete_pdf', {agencyCode: agencyCode, id: contrat.id}) }}"
+                                            onsubmit="return confirm('Supprimer le PDF du contrat ?')" class="d-inline">
+                                            <input type="hidden" name="_token" value="{{ csrf_token('delete-pdf-' ~ contrat.id) }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+
+                                {# Zone de remplacement (masquée par défaut) #}
+                                {% if is_granted('CONTRAT_EDIT', agencyCode) %}
+                                    <div id="pdfUploadZone" class="d-none mt-2">
+                                        {% include 'contrat_entretien/_upload_pdf_zone.html.twig' %}
+                                    </div>
                                 {% endif %}
-                            </div>
+
+                            {% else %}
+                                {# --- Pas de PDF : afficher zone d'upload --- #}
+                                {% if is_granted('CONTRAT_EDIT', agencyCode) %}
+                                    {% include 'contrat_entretien/_upload_pdf_zone.html.twig' %}
+                                {% else %}
+                                    <p class="text-muted mt-1"><em>Non uploadé</em></p>
+                                {% endif %}
+                            {% endif %}
                         </div>
                     </div>
                     
@@ -268,7 +301,15 @@
         <div class="col-lg-6">
             <div class="card">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="bi bi-file-earmark-plus"></i> Avenants ({{ avenants|length }})</h5>
+                    <h5 class="mb-0">
+                        <i class="bi bi-file-earmark-plus"></i> Avenants ({{ avenants|length }})
+                    </h5>
+                    {% if is_granted('CONTRAT_EDIT', agencyCode) %}
+                        <button type="button" class="btn btn-sm btn-primary" 
+                                data-bs-toggle="modal" data-bs-target="#modalAddAvenant">
+                            <i class="bi bi-plus-lg"></i> Ajouter
+                        </button>
+                    {% endif %}
                 </div>
                 <div class="card-body">
                     {% if avenants|length > 0 %}
@@ -278,16 +319,37 @@
                                 <div class="d-flex justify-content-between align-items-start">
                                     <div>
                                         <strong>{{ avenant.numero_avenant }}</strong>
-                                        <span class="text-muted ms-2">{{ avenant.date_avenant }}</span>
+                                        <span class="text-muted ms-2">
+                                            {{ avenant.date_avenant|date('d/m/Y') }}
+                                        </span>
                                         {% if avenant.description %}
                                             <br><small class="text-muted">{{ avenant.description }}</small>
                                         {% endif %}
                                     </div>
-                                    {% if avenant.pdf_path %}
-                                        <span class="badge bg-light text-danger">
-                                            <i class="bi bi-file-pdf"></i> PDF
-                                        </span>
-                                    {% endif %}
+                                    <div class="d-flex gap-1">
+                                        {# Bouton download PDF #}
+                                        {% if avenant.pdf_path %}
+                                            <a href="{{ path('app_contrat_entretien_download_avenant_pdf', {agencyCode: agencyCode, avenantId: avenant.id}) }}" 
+                                            class="btn btn-sm btn-outline-danger" target="_blank"
+                                            title="Voir le PDF">
+                                                <i class="bi bi-file-earmark-pdf"></i>
+                                            </a>
+                                        {% endif %}
+
+                                        {# Bouton supprimer #}
+                                        {% if is_granted('CONTRAT_EDIT', agencyCode) %}
+                                            <form method="post" 
+                                                action="{{ path('app_contrat_entretien_delete_avenant', {agencyCode: agencyCode, id: contrat.id, avenantId: avenant.id}) }}"
+                                                onsubmit="return confirm('Supprimer l\'avenant {{ avenant.numero_avenant }} ?')" 
+                                                class="d-inline">
+                                                <input type="hidden" name="_token" 
+                                                    value="{{ csrf_token('delete-avenant-' ~ avenant.id) }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Supprimer">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
                                 </div>
                             </div>
                             {% endfor %}
@@ -300,6 +362,11 @@
                 </div>
             </div>
         </div>
+
+        {# Inclure la modal — en dehors de la card, avant la fermeture du bloc principal #}
+        {% if is_granted('CONTRAT_EDIT', agencyCode) %}
+            {% include 'contrat_entretien/_modal_avenant.html.twig' %}
+        {% endif %}
     </div>
 
     {# ================================================================== #}

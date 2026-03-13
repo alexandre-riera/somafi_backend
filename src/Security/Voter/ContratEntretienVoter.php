@@ -109,7 +109,7 @@ class ContratEntretienVoter extends Voter
         $roles = $user->getRoles();
 
         return in_array(User::ROLE_USER_AGENCE, $roles, true)
-            || in_array(User::ROLE_GESTIONNAIRE_CONTRAT, $roles, true)
+            || in_array(User::ROLE_GESTIONNAIRE_CONTRAT_ENTRETIEN, $roles, true)
             || in_array(User::ROLE_ADMIN_AGENCE, $roles, true);
     }
 
@@ -120,7 +120,7 @@ class ContratEntretienVoter extends Voter
     {
         $roles = $user->getRoles();
 
-        return in_array(User::ROLE_GESTIONNAIRE_CONTRAT, $roles, true)
+        return in_array(User::ROLE_GESTIONNAIRE_CONTRAT_ENTRETIEN, $roles, true)
             || in_array(User::ROLE_ADMIN_AGENCE, $roles, true);
     }
 

@@ -20,6 +20,7 @@ use App\DTO\EquipementBulkDTO;
 use App\Service\EquipementBulkGeneratorService;
 use App\Service\EquipementInsertService;
 use App\Service\Kizeo\KizeoEquipmentSyncService;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 /**
  * Contrôleur pour la gestion des contrats d'entretien.
@@ -975,4 +976,278 @@ class ContratEntretienController extends AbstractController
 
         return $this->json($clients);
     }
+
+    // --- GESTION DES PDF DU CONTRAT ---
+    #[Route('/contrats/{agencyCode}/{id}/upload-pdf', name: 'app_contrat_entretien_upload_pdf', methods: ['POST'])]
+    public function uploadPdf(
+        string $agencyCode,
+        int $id,
+        Request $request,
+    ): Response {
+        $agencyCode = strtoupper($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::EDIT, $agencyCode);
+
+        // Vérifier le token CSRF
+        if (!$this->isCsrfTokenValid('upload-pdf-' . $id, $request->request->get('_token'))) {
+            $this->addFlash('danger', 'Token CSRF invalide.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id' => $id,
+            ]);
+        }
+
+        // Récupérer le contrat
+        $contrat = $this->contratService->getContratById($agencyCode, $id);
+        if (!$contrat) {
+            throw $this->createNotFoundException('Contrat introuvable.');
+        }
+
+        /** @var UploadedFile|null $file */
+        $file = $request->files->get('contrat_pdf_file');
+
+        if (!$file || !$file->isValid()) {
+            $this->addFlash('danger', 'Fichier invalide ou absent.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id' => $id,
+            ]);
+        }
+
+        // Vérifier que c'est bien un PDF
+        if ($file->getMimeType() !== 'application/pdf') {
+            $this->addFlash('danger', 'Seuls les fichiers PDF sont acceptés.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id' => $id,
+            ]);
+        }
+
+        // Vérifier la taille (max 10 Mo)
+        if ($file->getSize() > 10 * 1024 * 1024) {
+            $this->addFlash('danger', 'Le fichier ne doit pas dépasser 10 Mo.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id' => $id,
+            ]);
+        }
+
+        try {
+            // Supprimer l'ancien PDF s'il existe
+            $oldPath = $contrat['contrat_pdf_path'] ?? null;
+            if ($oldPath) {
+                $this->contratPdfService->deleteFile($oldPath);
+            }
+
+            // Upload le nouveau PDF
+            $relativePath = $this->contratPdfService->uploadContratPdf(
+                $agencyCode,
+                (string) $contrat['id_contact'],
+                (int) $contrat['numero_contrat'],
+                $file
+            );
+
+            // Mettre à jour le chemin en BDD
+            $this->contratService->updateContratPdfPath($agencyCode, $id, $relativePath);
+
+            $this->addFlash('success', 'PDF du contrat uploadé avec succès.');
+        } catch (\Exception $e) {
+            $this->addFlash('danger', 'Erreur lors de l\'upload : ' . $e->getMessage());
+        }
+
+        return $this->redirectToRoute('app_contrat_entretien_show', [
+            'agencyCode' => $agencyCode,
+            'id' => $id,
+        ]);
+    }
+
+    #[Route('/contrats/{agencyCode}/{id}/delete-pdf', name: 'app_contrat_entretien_delete_pdf', methods: ['POST'])]
+    public function deletePdf(
+        string $agencyCode,
+        int $id,
+        Request $request,
+    ): Response {
+        $agencyCode = strtoupper($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::EDIT, $agencyCode);
+
+        if (!$this->isCsrfTokenValid('delete-pdf-' . $id, $request->request->get('_token'))) {
+            $this->addFlash('danger', 'Token CSRF invalide.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id' => $id,
+            ]);
+        }
+
+        $contrat = $this->contratService->getContratById($agencyCode, $id);
+        if (!$contrat) {
+            throw $this->createNotFoundException('Contrat introuvable.');
+        }
+
+        $pdfPath = $contrat['contrat_pdf_path'] ?? null;
+        if ($pdfPath) {
+            $this->contratPdfService->deleteFile($pdfPath);
+            $this->contratService->updateContratPdfPath($agencyCode, $id, null);
+            $this->addFlash('success', 'PDF du contrat supprimé.');
+        }
+
+        return $this->redirectToRoute('app_contrat_entretien_show', [
+            'agencyCode' => $agencyCode,
+            'id' => $id,
+        ]);
+    }
+
+    #[Route('/{agencyCode}/{id}/avenant/add', name: 'app_contrat_entretien_add_avenant', requirements: ['id' => '\d+'], methods: ['POST'])]
+    public function addAvenant(
+        string $agencyCode,
+        int $id,
+        Request $request,
+    ): Response {
+        $agencyCode = $this->resolveAgencyOrThrow($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::EDIT, $agencyCode);
+
+        // CSRF
+        if (!$this->isCsrfTokenValid('add-avenant-' . $id, $request->request->get('_token'))) {
+            $this->addFlash('danger', 'Token CSRF invalide.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id' => $id,
+            ]);
+        }
+
+        // Récupérer le contrat
+        $contrat = $this->contratService->getContratById($agencyCode, $id);
+        if (!$contrat) {
+            throw $this->createNotFoundException('Contrat introuvable.');
+        }
+
+        // Récupérer les données du formulaire
+        $dateAvenant = $request->request->get('date_avenant');
+        $description = $request->request->get('description');
+
+        /** @var UploadedFile|null $file */
+        $file = $request->files->get('avenant_pdf_file');
+
+        // Validations
+        $errors = [];
+
+        if (empty($dateAvenant)) {
+            $errors[] = 'La date de l\'avenant est obligatoire.';
+        }
+
+        if (!$file || !$file->isValid()) {
+            $errors[] = 'Le fichier PDF de l\'avenant est obligatoire.';
+        } elseif ($file->getMimeType() !== 'application/pdf') {
+            $errors[] = 'Seuls les fichiers PDF sont acceptés.';
+        } elseif ($file->getSize() > 10 * 1024 * 1024) {
+            $errors[] = 'Le fichier ne doit pas dépasser 10 Mo.';
+        }
+
+        if (!empty($errors)) {
+            foreach ($errors as $error) {
+                $this->addFlash('danger', $error);
+            }
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id' => $id,
+            ]);
+        }
+
+        try {
+            // Générer le numéro d'avenant
+            $numeroAvenant = $this->contratService->getNextNumeroAvenant($agencyCode, $id);
+
+            // Upload le PDF
+            $pdfPath = $this->contratPdfService->uploadAvenantPdf(
+                $agencyCode,
+                (string) $contrat['id_contact'],
+                $numeroAvenant,
+                $file
+            );
+
+            // Insertion en BDD
+            $this->contratService->insertAvenant(
+                $agencyCode,
+                $id,
+                $numeroAvenant,
+                $dateAvenant,
+                $description ?: null,
+                $pdfPath
+            );
+
+            $this->addFlash('success', sprintf('Avenant %s ajouté avec succès.', $numeroAvenant));
+        } catch (\Exception $e) {
+            $this->addFlash('danger', 'Erreur lors de l\'ajout de l\'avenant : ' . $e->getMessage());
+        }
+
+        return $this->redirectToRoute('app_contrat_entretien_show', [
+            'agencyCode' => $agencyCode,
+            'id' => $id,
+        ]);
+    }
+
+    #[Route('/{agencyCode}/avenant/{avenantId}/pdf', name: 'app_contrat_entretien_download_avenant_pdf', requirements: ['avenantId' => '\d+'], methods: ['GET'])]
+    public function downloadAvenantPdf(
+        string $agencyCode,
+        int $avenantId,
+    ): Response {
+        $agencyCode = $this->resolveAgencyOrThrow($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::VIEW, $agencyCode);
+
+        $avenant = $this->contratService->getAvenantById($agencyCode, $avenantId);
+        if (!$avenant || empty($avenant['pdf_path'])) {
+            throw $this->createNotFoundException('PDF de l\'avenant introuvable.');
+        }
+
+        $absolutePath = $this->contratPdfService->getAbsolutePath($avenant['pdf_path']);
+
+        if (!file_exists($absolutePath)) {
+            throw $this->createNotFoundException('Fichier PDF introuvable sur le serveur.');
+        }
+
+        return $this->file($absolutePath);
+    }
+
+    #[Route('/{agencyCode}/{id}/avenant/{avenantId}/delete', name: 'app_contrat_entretien_delete_avenant', requirements: ['id' => '\d+', 'avenantId' => '\d+'], methods: ['POST'])]
+    public function deleteAvenant(
+        string $agencyCode,
+        int $id,
+        int $avenantId,
+        Request $request,
+    ): Response {
+        $agencyCode = $this->resolveAgencyOrThrow($agencyCode);
+        $this->denyAccessUnlessGranted(ContratEntretienVoter::EDIT, $agencyCode);
+
+        if (!$this->isCsrfTokenValid('delete-avenant-' . $avenantId, $request->request->get('_token'))) {
+            $this->addFlash('danger', 'Token CSRF invalide.');
+            return $this->redirectToRoute('app_contrat_entretien_show', [
+                'agencyCode' => $agencyCode,
+                'id' => $id,
+            ]);
+        }
+
+        $avenant = $this->contratService->getAvenantById($agencyCode, $avenantId);
+        if (!$avenant) {
+            throw $this->createNotFoundException('Avenant introuvable.');
+        }
+
+        try {
+            // Supprimer le fichier PDF
+            if (!empty($avenant['pdf_path'])) {
+                $this->contratPdfService->deleteFile($avenant['pdf_path']);
+            }
+
+            // Supprimer en BDD
+            $this->contratService->deleteAvenant($agencyCode, $avenantId);
+
+            $this->addFlash('success', sprintf('Avenant %s supprimé.', $avenant['numero_avenant']));
+        } catch (\Exception $e) {
+            $this->addFlash('danger', 'Erreur lors de la suppression : ' . $e->getMessage());
+        }
+
+        return $this->redirectToRoute('app_contrat_entretien_show', [
+            'agencyCode' => $agencyCode,
+            'id' => $id,
+        ]);
+    }
+
+    
 }

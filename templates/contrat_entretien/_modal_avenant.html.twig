@@ -1,0 +1,63 @@
+{# templates/contrat_entretien/_modal_avenant.html.twig #}
+{# Modal Bootstrap pour ajouter un avenant #}
+
+<div class="modal fade" id="modalAddAvenant" tabindex="-1" aria-labelledby="modalAddAvenantLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" 
+                  action="{{ path('app_contrat_entretien_add_avenant', {agencyCode: agencyCode, id: contrat.id}) }}"
+                  enctype="multipart/form-data">
+                <input type="hidden" name="_token" value="{{ csrf_token('add-avenant-' ~ contrat.id) }}">
+
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalAddAvenantLabel">
+                        <i class="bi bi-file-earmark-plus"></i> Nouvel avenant
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                </div>
+
+                <div class="modal-body">
+                    {# Date avenant #}
+                    <div class="mb-3">
+                        <label for="date_avenant" class="form-label fw-bold">
+                            Date de l'avenant <span class="text-danger">*</span>
+                        </label>
+                        <input type="date" class="form-control" id="date_avenant" name="date_avenant" 
+                               value="{{ 'now'|date('Y-m-d') }}" required>
+                    </div>
+
+                    {# Description #}
+                    <div class="mb-3">
+                        <label for="avenant_description" class="form-label fw-bold">Description</label>
+                        <textarea class="form-control" id="avenant_description" name="description" 
+                                  rows="3" placeholder="Modifications apportées par cet avenant..."></textarea>
+                        <small class="form-text text-muted">Optionnel — décrivez les changements contractuels.</small>
+                    </div>
+
+                    {# Upload PDF #}
+                    <div class="mb-3">
+                        <label for="avenant_pdf_file" class="form-label fw-bold">
+                            PDF de l'avenant <span class="text-danger">*</span>
+                        </label>
+                        <input type="file" class="form-control" id="avenant_pdf_file" name="avenant_pdf_file" 
+                               accept=".pdf,application/pdf" required>
+                        <small class="form-text text-muted">PDF uniquement — 10 Mo max.</small>
+                    </div>
+
+                    {# Numéro auto-généré (info) #}
+                    <div class="alert alert-info py-2 mb-0">
+                        <i class="bi bi-info-circle"></i>
+                        Le numéro d'avenant sera généré automatiquement.
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-upload"></i> Ajouter l'avenant
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
