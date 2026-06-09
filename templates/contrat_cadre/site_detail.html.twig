@@ -218,85 +218,6 @@
         max-width: 300px;
     }
 
-    /* Pagination */
-    .pagination-bar {
-        background: white;
-        border-radius: 8px;
-        padding: 0.75rem 1.5rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-bottom: 1.5rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-    }
-
-    .pagination-info {
-        font-size: 0.875rem;
-        color: #666;
-    }
-
-    .pagination-info strong {
-        color: #333;
-    }
-
-    .pagination-nav {
-        display: flex;
-        align-items: center;
-        gap: 0.25rem;
-    }
-
-    .pagination-nav a,
-    .pagination-nav span {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 36px;
-        height: 36px;
-        padding: 0 0.5rem;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        text-decoration: none;
-        font-size: 0.875rem;
-        color: #333;
-        background: white;
-        transition: all 0.15s;
-    }
-
-    .pagination-nav a:hover {
-        background: var(--cc-primary-light);
-        border-color: var(--cc-primary);
-        color: var(--cc-primary);
-    }
-
-    .pagination-nav span.current {
-        background: var(--cc-primary);
-        color: white;
-        border-color: var(--cc-primary);
-        font-weight: 600;
-    }
-
-    .pagination-nav span.disabled {
-        color: #ccc;
-        cursor: not-allowed;
-    }
-
-    .pagination-per-page {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.875rem;
-        color: #666;
-    }
-
-    .pagination-per-page select {
-        padding: 0.35rem 0.75rem;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 0.875rem;
-    }
-
     /* Section fichiers */
     .files-section {
         background: white;
@@ -475,11 +396,6 @@
             grid-template-columns: 1fr;
         }
 
-        .pagination-bar {
-            flex-direction: column;
-            align-items: center;
-        }
-
         .upload-zone {
             flex-direction: column;
             align-items: stretch;
@@ -569,9 +485,6 @@
                     {% endfor %}
                 </select>
             </div>
-
-            {# Conserver per_page dans le formulaire de filtres #}
-            <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
         </form>
 
         <div class="stats-row">
@@ -640,7 +553,7 @@
                     <tbody>
                         {% for equip in equipContrat %}
                             <tr>
-                                <td>{{ pagination.offset + loop.index }}</td>
+                                <td>{{ loop.index }}</td>
                                 <td><strong>{{ equip.numero_equipement }}</strong></td>
                                 <td>{{ equip.libelle_equipement }}</td>
                                 <td>{{ equip.marque ?? '-' }}</td>
@@ -682,7 +595,7 @@
                     <tbody>
                         {% for equip in equipHorsContrat %}
                             <tr>
-                                <td>{{ pagination.offset + loop.index }}</td>
+                                <td>{{ loop.index }}</td>
                                 <td><strong>{{ equip.numero_equipement }}</strong></td>
                                 <td>{{ equip.libelle_equipement }}</td>
                                 <td>{{ equip.marque ?? '-' }}</td>
@@ -700,62 +613,6 @@
                         {% endfor %}
                     </tbody>
                 </table>
-            </div>
-        {% endif %}
-
-        {# ---- Pagination ---- #}
-        {% if pagination.total_pages > 1 %}
-            <div class="pagination-bar">
-                <div class="pagination-info">
-                    Affichage <strong>{{ pagination.offset + 1 }}</strong> - <strong>{{ min(pagination.offset + pagination.per_page, pagination.total) }}</strong> sur <strong>{{ pagination.total }}</strong> équipement(s)
-                </div>
-
-                <nav class="pagination-nav">
-                    {# Bouton précédent #}
-                    {% if pagination.page > 1 %}
-                        <a href="?annee={{ current_year }}&visite={{ current_visit }}&page={{ pagination.page - 1 }}&per_page={{ pagination.per_page }}" title="Page précédente">‹</a>
-                    {% else %}
-                        <span class="disabled">‹</span>
-                    {% endif %}
-
-                    {# Numéros de pages #}
-                    {% set start_page = max(1, pagination.page - 2) %}
-                    {% set end_page = min(pagination.total_pages, pagination.page + 2) %}
-
-                    {% if start_page > 1 %}
-                        <a href="?annee={{ current_year }}&visite={{ current_visit }}&page=1&per_page={{ pagination.per_page }}">1</a>
-                        {% if start_page > 2 %}<span class="disabled">…</span>{% endif %}
-                    {% endif %}
-
-                    {% for p in start_page..end_page %}
-                        {% if p == pagination.page %}
-                            <span class="current">{{ p }}</span>
-                        {% else %}
-                            <a href="?annee={{ current_year }}&visite={{ current_visit }}&page={{ p }}&per_page={{ pagination.per_page }}">{{ p }}</a>
-                        {% endif %}
-                    {% endfor %}
-
-                    {% if end_page < pagination.total_pages %}
-                        {% if end_page < pagination.total_pages - 1 %}<span class="disabled">…</span>{% endif %}
-                        <a href="?annee={{ current_year }}&visite={{ current_visit }}&page={{ pagination.total_pages }}&per_page={{ pagination.per_page }}">{{ pagination.total_pages }}</a>
-                    {% endif %}
-
-                    {# Bouton suivant #}
-                    {% if pagination.page < pagination.total_pages %}
-                        <a href="?annee={{ current_year }}&visite={{ current_visit }}&page={{ pagination.page + 1 }}&per_page={{ pagination.per_page }}" title="Page suivante">›</a>
-                    {% else %}
-                        <span class="disabled">›</span>
-                    {% endif %}
-                </nav>
-
-                <div class="pagination-per-page">
-                    <label for="perPageSelect">Par page :</label>
-                    <select id="perPageSelect" onchange="window.location.href='?annee={{ current_year }}&visite={{ current_visit }}&page=1&per_page=' + this.value">
-                        {% for pp in [20, 50, 100] %}
-                            <option value="{{ pp }}" {% if pp == pagination.per_page %}selected{% endif %}>{{ pp }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
             </div>
         {% endif %}
 

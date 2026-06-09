@@ -92,20 +92,11 @@ class ContratCadreController extends AbstractController
         $annee = $request->query->get('annee');
         $visite = $request->query->get('visite');
 
-        // Pagination
-        $page = max(1, (int) $request->query->get('page', 1));
-        $perPage = (int) $request->query->get('per_page', 20);
-        if (!in_array($perPage, [20, 50, 100])) {
-            $perPage = 20;
-        }
-
         $equipmentsData = $this->contratCadreService->getEquipmentsForSite(
             $agencyCode,
             $idContact,
             $annee,
-            $visite,
-            $page,
-            $perPage
+            $visite
         );
 
         $files = $this->contratCadreService->getFilesForContact($agencyCode, $idContact);
@@ -120,7 +111,6 @@ class ContratCadreController extends AbstractController
             'current_year' => $equipmentsData['current_year'],
             'current_visit' => $equipmentsData['current_visit'],
             'stats' => $equipmentsData['stats'],
-            'pagination' => $equipmentsData['pagination'],
             'files' => $files,
             'agency_code' => strtoupper($agencyCode),
             'id_contact' => $idContact,
@@ -331,13 +321,8 @@ class ContratCadreController extends AbstractController
 
         $annee = $request->query->get('annee');
         $visite = $request->query->get('visite');
-        $page = max(1, (int) $request->query->get('page', 1));
-        $perPage = (int) $request->query->get('per_page', 20);
-        if (!in_array($perPage, [20, 50, 100])) {
-            $perPage = 20;
-        }
 
-        $data = $this->contratCadreService->getEquipmentsForSite($agencyCode, $idContact, $annee, $visite, $page, $perPage);
+        $data = $this->contratCadreService->getEquipmentsForSite($agencyCode, $idContact, $annee, $visite);
 
         return $this->json($data);
     }

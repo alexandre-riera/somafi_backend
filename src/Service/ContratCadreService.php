@@ -174,15 +174,13 @@ class ContratCadreService
 
     /**
      * Récupère les équipements d'un site pour un contrat cadre
-     * Avec pagination côté serveur
+     * Tous les équipements de la visite (sans pagination)
      */
     public function getEquipmentsForSite(
         string $agencyCode,
         string $idContact,
         ?string $annee = null,
-        ?string $visite = null,
-        int $page = 1,
-        int $perPage = 20
+        ?string $visite = null
     ): array {
         $agencyCode = strtoupper($agencyCode);
 
@@ -193,7 +191,6 @@ class ContratCadreService
             'current_year' => null,
             'current_visit' => null,
             'stats' => ['total' => 0, 'au_contrat' => 0, 'hors_contrat' => 0],
-            'pagination' => ['page' => 1, 'per_page' => $perPage, 'total' => 0, 'total_pages' => 0, 'offset' => 0]
         ];
 
         if (!in_array($agencyCode, self::AGENCY_CODES)) {
@@ -234,13 +231,12 @@ class ContratCadreService
             $visite = !empty($visitesDisponibles) ? max($visitesDisponibles) : ($visits[0] ?? null);
         }
 
-        // 2. Récupérer les stats (indépendantes de la pagination)
+        // 2. Récupérer les stats
         $stats = ['total' => 0, 'au_contrat' => 0, 'hors_contrat' => 0];
         $equipments = [];
-        $pagination = ['page' => $page, 'per_page' => $perPage, 'total' => 0, 'total_pages' => 0, 'offset' => 0];
 
         if ($annee && $visite) {
-            // Compteur global (hors pagination)
+            // Compteur global
             $countSql = "
                 SELECT 
                     COUNT(*) as total,
@@ -269,20 +265,7 @@ class ContratCadreService
                 $this->logger->error("Erreur countEquipments CC: " . $e->getMessage());
             }
 
-            // Pagination
-            $totalPages = $stats['total'] > 0 ? (int) ceil($stats['total'] / $perPage) : 0;
-            $page = max(1, min($page, max(1, $totalPages)));
-            $offset = ($page - 1) * $perPage;
-
-            $pagination = [
-                'page' => $page,
-                'per_page' => $perPage,
-                'total' => $stats['total'],
-                'total_pages' => $totalPages,
-                'offset' => $offset,
-            ];
-
-            // 3. Récupérer les équipements paginés
+            // 3. Récupérer tous les équipements de la visite
             $equipSql = "
                 SELECT 
                     id,
@@ -312,7 +295,6 @@ class ContratCadreService
                   AND visite = :visite
                   AND is_archive = 0
                 ORDER BY is_hors_contrat ASC, numero_equipement ASC
-                LIMIT {$perPage} OFFSET {$offset}
             ";
 
             try {
@@ -334,7 +316,6 @@ class ContratCadreService
             'current_year' => $annee,
             'current_visit' => $visite,
             'stats' => $stats,
-            'pagination' => $pagination
         ];
     }
 

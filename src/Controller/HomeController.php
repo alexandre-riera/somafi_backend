@@ -31,12 +31,6 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[IsGranted('ROLE_USER')]
 class HomeController extends AbstractController
 {
-    /** Nombre d'équipements par page par défaut */
-    private const EQUIPMENTS_PER_PAGE = 20;
-
-    /** Valeurs autorisées pour le nombre par page */
-    private const ALLOWED_PER_PAGE = [20, 50, 100];
-
     public function __construct(
         private readonly AgencyRepository $agencyRepository,
         private readonly KizeoClientService $kizeoClientService,
@@ -140,8 +134,8 @@ class HomeController extends AbstractController
     /**
      * Page équipements d'un client
      * 
-     * Affiche les équipements avec filtres année/visite et pagination.
-     * Par défaut : dernière visite enregistrée, page 1, 20 items/page.
+     * Affiche tous les équipements avec filtres année/visite.
+     * Par défaut : dernière visite enregistrée.
      */
     #[Route('/agency/{agencyCode}/client/{idContact}', name: 'app_client_equipments', requirements: ['agencyCode' => 'S\d+', 'idContact' => '\d+'])]
     public function clientEquipments(string $agencyCode, int $idContact, Request $request): Response
@@ -188,29 +182,14 @@ class HomeController extends AbstractController
         $annee = $request->query->get('annee', $lastVisit['annee'] ?? date('Y'));
         $visite = $request->query->get('visite', $lastVisit['visite'] ?? 'CE1');
 
-        // Paramètres de pagination
-        $page = max(1, $request->query->getInt('page', 1));
-        $limit = $request->query->getInt('limit', self::EQUIPMENTS_PER_PAGE);
-        
-        // Sécuriser le limit aux valeurs autorisées
-        if (!in_array($limit, self::ALLOWED_PER_PAGE, true)) {
-            $limit = self::EQUIPMENTS_PER_PAGE;
-        }
-
         // Récupérer les années et visites disponibles
         $availableFilters = $this->getAvailableFilters($agencyCode, $idContact);
 
-        // Récupérer les stats globales pour les compteurs (toujours sur le total)
+        // Récupérer les stats globales pour les compteurs
         $equipmentStats = $this->getEquipmentStats($agencyCode, $idContact, $annee, $visite);
 
-        // Calculer la pagination
-        $totalEquipments = $equipmentStats['total'];
-        $totalPages = max(1, (int) ceil($totalEquipments / $limit));
-        $page = min($page, $totalPages); // Sécuriser si page > max
-        $offset = ($page - 1) * $limit;
-
-        // Récupérer les équipements paginés
-        $equipments = $this->getEquipmentsByVisit($agencyCode, $idContact, $annee, $visite, $limit, $offset);
+        // Récupérer tous les équipements de la visite (filtrage client-side dans le tableau)
+        $equipments = $this->getEquipmentsByVisit($agencyCode, $idContact, $annee, $visite);
 
         // Récupérer les CR techniciens (PDF Kizeo) pour cette visite
         $technicianReports = $this->getTechnicianReports($agencyCode, $idContact, $annee, $visite);
@@ -226,11 +205,6 @@ class HomeController extends AbstractController
             'available_visits' => $availableFilters['visits'],
             'last_visit' => $lastVisit,
             'technician_reports' => $technicianReports,
-            // Pagination
-            'current_page' => $page,
-            'total_pages' => $totalPages,
-            'per_page' => $limit,
-            'pagination_offset' => $offset,
             // Stats globales (pour les cards compteurs)
             'equipment_stats' => $equipmentStats,
         ]);
@@ -631,32 +605,27 @@ class HomeController extends AbstractController
      * 
      * @return array<int, array>
      */
-    private function getEquipmentsByVisit(string $agencyCode, int $idContact, string $annee, string $visite, int $limit = self::EQUIPMENTS_PER_PAGE, int $offset = 0): array
+    private function getEquipmentsByVisit(string $agencyCode, int $idContact, string $annee, string $visite): array
     {
         $tableNumber = $this->extractTableNumber($agencyCode);
         $tableName = 'equipement_s' . $tableNumber;
 
         try {
             $sql = "SELECT * FROM {$tableName}
-                    WHERE id_contact = :idContact 
-                      AND annee = :annee 
+                    WHERE id_contact = :idContact
+                      AND annee = :annee
                       AND visite = :visite
                       AND is_archive = 0
-                    ORDER BY is_hors_contrat ASC, numero_equipement ASC
-                    LIMIT :limit OFFSET :offset";
-            
+                    ORDER BY is_hors_contrat ASC, numero_equipement ASC";
+
             return $this->connection->fetchAllAssociative($sql, [
                 'idContact' => $idContact,
                 'annee' => $annee,
                 'visite' => $visite,
-                'limit' => $limit,
-                'offset' => $offset,
             ], [
                 'idContact' => \Doctrine\DBAL\ParameterType::INTEGER,
                 'annee' => \Doctrine\DBAL\ParameterType::STRING,
                 'visite' => \Doctrine\DBAL\ParameterType::STRING,
-                'limit' => \Doctrine\DBAL\ParameterType::INTEGER,
-                'offset' => \Doctrine\DBAL\ParameterType::INTEGER,
             ]);
 
         } catch (\Exception $e) {

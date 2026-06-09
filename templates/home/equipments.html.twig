@@ -246,8 +246,7 @@
                     Équipements - {{ visite }} {{ annee }}
                 </span>
                 <small class="text-muted">
-                    Page {{ current_page }} / {{ total_pages }}
-                    ({{ equipment_stats.total }} équipement{{ equipment_stats.total > 1 ? 's' : '' }})
+                    {{ equipment_stats.total }} équipement{{ equipment_stats.total > 1 ? 's' : '' }}
                 </small>
             </div>
             <div class="table-responsive">
@@ -327,7 +326,7 @@
                     <tbody>
                         {% for equip in equipments %}
                             <tr class="{{ equip.is_hors_contrat ? 'table-warning' : '' }}">
-                                <td class="text-muted">{{ pagination_offset + loop.index }}</td>
+                                <td class="text-muted">{{ loop.index }}</td>
                                 <td>
                                     <strong>{{ equip.numero_equipement }}</strong>
                                     {% if equip.numero_equipement_client %}
@@ -414,113 +413,6 @@
                     </tbody>
                 </table>
             </div>
-
-            {# Pagination #}
-            {% if total_pages > 1 %}
-                <div class="card-footer">
-                    <nav aria-label="Pagination équipements">
-                        <ul class="pagination pagination-sm justify-content-center mb-0">
-                            {# Bouton Précédent #}
-                            <li class="page-item {{ current_page <= 1 ? 'disabled' : '' }}">
-                                <a class="page-link" 
-                                   href="{{ path('app_client_equipments', {
-                                       agencyCode: agencyCode,
-                                       idContact: client.id_contact,
-                                       annee: annee,
-                                       visite: visite,
-                                       page: current_page - 1
-                                   }) }}"
-                                   aria-label="Précédent">
-                                    <i class="bi bi-chevron-left"></i>
-                                </a>
-                            </li>
-
-                            {# Pages #}
-                            {% set start_page = max(1, current_page - 2) %}
-                            {% set end_page = min(total_pages, current_page + 2) %}
-
-                            {% if start_page > 1 %}
-                                <li class="page-item">
-                                    <a class="page-link" href="{{ path('app_client_equipments', {
-                                        agencyCode: agencyCode,
-                                        idContact: client.id_contact,
-                                        annee: annee,
-                                        visite: visite,
-                                        page: 1
-                                    }) }}">1</a>
-                                </li>
-                                {% if start_page > 2 %}
-                                    <li class="page-item disabled"><span class="page-link">…</span></li>
-                                {% endif %}
-                            {% endif %}
-
-                            {% for p in start_page..end_page %}
-                                <li class="page-item {{ p == current_page ? 'active' : '' }}">
-                                    <a class="page-link" href="{{ path('app_client_equipments', {
-                                        agencyCode: agencyCode,
-                                        idContact: client.id_contact,
-                                        annee: annee,
-                                        visite: visite,
-                                        page: p
-                                    }) }}">{{ p }}</a>
-                                </li>
-                            {% endfor %}
-
-                            {% if end_page < total_pages %}
-                                {% if end_page < total_pages - 1 %}
-                                    <li class="page-item disabled"><span class="page-link">…</span></li>
-                                {% endif %}
-                                <li class="page-item">
-                                    <a class="page-link" href="{{ path('app_client_equipments', {
-                                        agencyCode: agencyCode,
-                                        idContact: client.id_contact,
-                                        annee: annee,
-                                        visite: visite,
-                                        page: total_pages
-                                    }) }}">{{ total_pages }}</a>
-                                </li>
-                            {% endif %}
-
-                            {# Bouton Suivant #}
-                            <li class="page-item {{ current_page >= total_pages ? 'disabled' : '' }}">
-                                <a class="page-link" 
-                                   href="{{ path('app_client_equipments', {
-                                       agencyCode: agencyCode,
-                                       idContact: client.id_contact,
-                                       annee: annee,
-                                       visite: visite,
-                                       page: current_page + 1
-                                   }) }}"
-                                   aria-label="Suivant">
-                                    <i class="bi bi-chevron-right"></i>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
-
-                    {# Sélecteur items par page #}
-                    <div class="text-center mt-2">
-                        <small class="text-muted">Afficher 
-                            {% for size in [20, 50, 100] %}
-                                {% if size == per_page %}
-                                    <strong>{{ size }}</strong>
-                                {% else %}
-                                    <a href="{{ path('app_client_equipments', {
-                                        agencyCode: agencyCode,
-                                        idContact: client.id_contact,
-                                        annee: annee,
-                                        visite: visite,
-                                        page: 1,
-                                        limit: size
-                                    }) }}">{{ size }}</a>
-                                {% endif %}
-                                {% if not loop.last %} · {% endif %}
-                            {% endfor %}
-                            par page
-                        </small>
-                    </div>
-                </div>
-            {% endif %}
         </div>
     {% endif %}
 </div>
