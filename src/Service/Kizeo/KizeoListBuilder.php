@@ -18,7 +18,14 @@ use Psr\Log\LoggerInterface;
  * 
  * Format Kizeo (11 segments séparés par pipe) :
  *   CLIENT:CLIENT\VISITE:VISITE\NUM:NUM|type:type|mes:mes|serie:serie|marque:marque|
- *   long:long|larg:larg|haut:haut|id_contact:id_contact|id_societe:id_societe|code:code
+ *   haut:haut|larg:larg|repere:repere|id_contact:id_contact|id_societe:id_societe|code:code
+ *
+ * ⚠️ Ordre des dimensions (corrigé 11/06/2026) :
+ *   pos 6 = hauteur, pos 7 = largeur, pos 8 = repère site client.
+ *   La pos 8 est référencée par le champ « localisation_site_client » du
+ *   formulaire Kizeo (« colonne 8 »). Il n'y a PAS de colonne longueur dans
+ *   le contrat de liste. Avant correction : pos 6=longueur, pos 8=hauteur,
+ *   ce qui écrasait le repère par la hauteur (bug de mapping).
  * 
  * Clé unique de merge : id_contact\visite\numero_equipement
  * (id_contact est plus fiable que raison_sociale car les noms peuvent différer
@@ -65,10 +72,13 @@ class KizeoListBuilder
                 e.mise_en_service,
                 e.numero_serie,
                 e.marque,
-                e.longueur,
-                e.largeur,
                 e.hauteur,
+                e.largeur,
+                e.repere_site_client,
+                e.longueur,
                 e.id_contact,
+                e.date_derniere_visite,
+                e.date_modification,
                 c.raison_sociale,
                 c.id_societe
             FROM {$equipTable} e
@@ -189,9 +199,12 @@ class KizeoListBuilder
             $this->formatSegment($row['mise_en_service'] ?? ''),
             $this->formatSegment($row['numero_serie'] ?? ''),
             $this->formatSegment($row['marque'] ?? ''),
-            $this->formatSegment($row['longueur'] ?? ''),
-            $this->formatSegment($row['largeur'] ?? ''),
+            // Pos 6/7/8 : Hauteur | Largeur | Repère site client (corrigé 11/06/2026)
+            // La pos 8 (repère) est lue par le champ localisation_site_client du
+            // formulaire Kizeo. La longueur ne fait PAS partie du contrat de liste.
             $this->formatSegment($row['hauteur'] ?? ''),
+            $this->formatSegment($row['largeur'] ?? ''),
+            $this->formatSegment($row['repere_site_client'] ?? ''),
             $this->formatSegment((string) ($row['id_contact'] ?? '')),
             $this->formatSegment($row['id_societe'] ?? ''),
             $this->formatSegment($agencyCode),
@@ -248,7 +261,7 @@ class KizeoListBuilder
      * Extrait la clé de merge normalisée depuis un item Kizeo existant
      * 
      * L'item Kizeo a le format (11 segments pipe-séparés) :
-     *   CLIENT:CLIENT\VISITE:VISITE\NUM:NUM|type|mes|serie|marque|long|larg|haut|id_contact:id_contact|id_societe|code
+     *   CLIENT:CLIENT\VISITE:VISITE\NUM:NUM|type|mes|serie|marque|haut|larg|repere|id_contact:id_contact|id_societe|code
      * 
      * On extrait :
      * - visite + numero_equipement depuis le segment hiérarchique (segment 1)
