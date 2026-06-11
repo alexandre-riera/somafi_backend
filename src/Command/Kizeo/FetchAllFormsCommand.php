@@ -429,6 +429,7 @@ class FetchAllFormsCommand extends Command
                 );
 
                 $stats['equipments_created'] = $persistResult['inserted_contract'] + $persistResult['inserted_offcontract'];
+                $stats['equipments_updated'] = $persistResult['updated_contract'];
                 $stats['equipments_skipped'] = $persistResult['skipped_contract'] + $persistResult['skipped_offcontract'];
                 $generatedNumbers = $persistResult['generated_numbers'];
             } else {

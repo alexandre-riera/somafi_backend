@@ -767,111 +767,15 @@ class KizeoFormProcessor
         $annee = $dateVisite ? (new \DateTime($dateVisite))->format('Y') : date('Y');
 
         // ==========================================================================
-        // 3. DÉDUPLICATION
+        // 3. CALCUL DES VALEURS DU CR (communes insert + update)
         // ==========================================================================
-        $exists = $this->deduplicator->existsContractEquipment(
-            $agencyCode,
-            $idContact,
-            $numero,
-            $visite,
-            $dateVisite ? new \DateTime($dateVisite) : null
-        );
-
-        if ($exists) {
-            $this->kizeoLogger->debug('Équipement contrat ignoré (doublon)', [
-                'agency' => $agencyCode,
-                'numero' => $numero,
-                'visite' => $visite,
-                'annee' => $annee,
-            ]);
-            return $result;
-        }
-
-        // ==========================================================================
-        // 4. CRÉATION DE L'ENTITÉ
-        // ==========================================================================
-        $entity = $this->equipmentFactory->createForAgency($agencyCode);
-        
-        // --- Champs obligatoires ---
-        $entity->setIdContact($idContact);
-        $entity->setNumeroEquipement($numero);
-        $entity->setVisite($visite);
-        $entity->setAnnee($annee);
-        $entity->setDateDerniereVisite($dateVisite ? new \DateTime($dateVisite) : null);
-        $entity->setTrigrammeTech($trigramme);
-        $entity->setIsHorsContrat(false);
-        $entity->setIsArchive(false);
-        $entity->setKizeoFormId($formId);
-        $entity->setKizeoDataId($dataId);
-        $entity->setDateEnregistrement(new \DateTime());
-        
-        // ==========================================================================
-        // 5. CHAMPS ENRICHIS (MAPPING CONTRAT)
-        // ==========================================================================
-        
-        // Libellé équipement (type: Porte Rapide, Rideau metallique, Niveleur, etc.)
-        $entity->setLibelleEquipement(
-            $this->getEquipDataValue($equipData, 'reference7') ?? ''
-        );
-        
-        // Repère site client (localisation sur le site)
-        $entity->setRepereSiteClient(
-            $this->getEquipDataValue($equipData, 'localisation_site_client')
-        );
-        
-        // Année de mise en service
-        $entity->setMiseEnService(
-            $this->getEquipDataValue($equipData, 'reference2')
-        );
-        
-        // Numéro de série
-        $entity->setNumeroSerie(
-            $this->getEquipDataValue($equipData, 'reference6')
-        );
-        
-        // Marque du fabricant
-        $entity->setMarque(
-            $this->getEquipDataValue($equipData, 'reference5')
-        );
-        
-        // Mode de fonctionnement (automatique, manuel, motorisé)
-        $entity->setModeFonctionnement(
-            $this->getEquipDataValue($equipData, 'mode_fonctionnement_2')
-        );
-        
-        // Dimensions
-        $entity->setHauteur(
-            $this->getEquipDataValue($equipData, 'reference3')
-        );
-        $entity->setLargeur(
-            $this->getEquipDataValue($equipData, 'reference1')
-        );
-        
-        // ==========================================================================
-        // STATUT ÉQUIPEMENT AU CONTRAT (Codes officiels SOMAFI)
-        // ==========================================================================
-        
-        // Récupérer le code lettre depuis Kizeo ou le calculer depuis les champs
         $statusCode = $this->getEquipDataValue($equipData, 'etat');
         if (empty($statusCode)) {
             $statusCode = $this->calculateStatusFromFieldsContrat($equipData);
         }
-        
-        // statut_equipement = Code lettre (A, B, C, D, E, F, G)
-        $entity->setStatutEquipement($statusCode);
-        
-        // etat_equipement = Description textuelle complète
-        $entity->setEtatEquipement(
-            $this->getStatusDescription($statusCode, false)
-        );
-        
-        // ==========================================================================
-        // ANOMALIES (FIX 06/02/2026 - extraction directe des valuesAsArray)
-        // ==========================================================================
+        $statusCode = is_string($statusCode) ? $statusCode : null;
+
         $anomalies = $this->extractAnomalies($equipData);
-        $entity->setAnomalies($anomalies);
-        
-        // Log si statut C/B mais aucune anomalie trouvée (aide au debug)
         if (in_array($statusCode, ['B', 'C'], true) && $anomalies === null) {
             $this->kizeoLogger->warning('Équipement statut B/C sans anomalie détectée', [
                 'agency' => $agencyCode,
@@ -880,18 +784,124 @@ class KizeoFormProcessor
                 'data_id' => $dataId,
             ]);
         }
-        
-        // Observations (temps de travail estimé + besoins nacelle)
-        $entity->setObservations(
-            $this->buildObservations($equipData)
-        );
+
+        $cr = [
+            'libelle_equipement'  => $this->stringOrNull($this->getEquipDataValue($equipData, 'reference7')),
+            'repere_site_client'  => $this->stringOrNull($this->getEquipDataValue($equipData, 'localisation_site_client')),
+            'mise_en_service'     => $this->stringOrNull($this->getEquipDataValue($equipData, 'reference2')),
+            'numero_serie'        => $this->stringOrNull($this->getEquipDataValue($equipData, 'reference6')),
+            'marque'              => $this->stringOrNull($this->getEquipDataValue($equipData, 'reference5')),
+            'mode_fonctionnement' => $this->stringOrNull($this->getEquipDataValue($equipData, 'mode_fonctionnement_2')),
+            'hauteur'             => $this->stringOrNull($this->getEquipDataValue($equipData, 'reference3')),
+            'largeur'             => $this->stringOrNull($this->getEquipDataValue($equipData, 'reference1')),
+            'statut_equipement'   => $statusCode,
+            'etat_equipement'     => $this->getStatusDescription($statusCode, false),
+            'anomalies'           => $anomalies,
+            'observations'        => $this->buildObservations($equipData),
+        ];
+
+        $newDateObj = $dateVisite ? new \DateTime($dateVisite) : null;
 
         // ==========================================================================
-        // 6. PERSISTANCE
+        // 4. UPSERT — ligne active (id_contact + numero + visite + annee)
         // ==========================================================================
+        // CORRECTION 12/06/2026 : alignement sur EquipmentPersister (UPSERT).
+        // Avant, l'import sautait toute ligne existante (saisie « Gestion de parc »,
+        // génération en masse) et JETAIT les données du CR. Désormais : si le CR
+        // est plus récent (ou la ligne n'a pas de date de visite), on met à jour
+        // avec fusion défensive (jamais écraser une valeur par du vide).
+        $repo = $this->em->getRepository($this->equipmentFactory->getEntityClassForAgency($agencyCode));
+        $existing = $repo->findOneBy([
+            'idContact' => $idContact,
+            'numeroEquipement' => $numero,
+            'visite' => $visite,
+            'annee' => $annee,
+            'isArchive' => false,
+        ], ['id' => 'DESC']);
+
+        if ($existing !== null) {
+            $existingDate = $existing->getDateDerniereVisite()?->format('Y-m-d');
+            if (!$this->crIsNewer($existingDate, $newDateObj?->format('Y-m-d'))) {
+                $this->kizeoLogger->debug('Équipement contrat déjà à jour (CR non plus récent)', [
+                    'agency' => $agencyCode,
+                    'numero' => $numero,
+                    'visite' => $visite,
+                    'annee' => $annee,
+                    'date_existante' => $existingDate,
+                    'date_cr' => $newDateObj?->format('Y-m-d'),
+                ]);
+                return $result; // created = 0, updated = 0
+            }
+
+            if (!$dryRun) {
+                // Champs fiche équipement : fusion défensive
+                $existing->setLibelleEquipement((string) $this->preferNew($cr['libelle_equipement'], $existing->getLibelleEquipement()));
+                $existing->setRepereSiteClient($this->preferNew($cr['repere_site_client'], $existing->getRepereSiteClient()));
+                $existing->setMiseEnService($this->preferNew($cr['mise_en_service'], $existing->getMiseEnService()));
+                $existing->setNumeroSerie($this->preferNew($cr['numero_serie'], $existing->getNumeroSerie()));
+                $existing->setMarque($this->preferNew($cr['marque'], $existing->getMarque()));
+                $existing->setModeFonctionnement($this->preferNew($cr['mode_fonctionnement'], $existing->getModeFonctionnement()));
+                $existing->setHauteur($this->preferNew($cr['hauteur'], $existing->getHauteur()));
+                $existing->setLargeur($this->preferNew($cr['largeur'], $existing->getLargeur()));
+                $existing->setStatutEquipement($this->preferNew($cr['statut_equipement'], $existing->getStatutEquipement()));
+                $existing->setEtatEquipement($this->preferNew($cr['etat_equipement'], $existing->getEtatEquipement()));
+                $existing->setAnomalies($this->preferNew($cr['anomalies'], $existing->getAnomalies()));
+                $existing->setObservations($this->preferNew($cr['observations'], $existing->getObservations()));
+                // Provenance / visite courante (CR le plus récent)
+                if ($newDateObj !== null) {
+                    $existing->setDateDerniereVisite($newDateObj);
+                }
+                $existing->setTrigrammeTech($this->preferNew($trigramme, $existing->getTrigrammeTech()));
+                $existing->setKizeoFormId($formId);
+                $existing->setKizeoDataId($dataId);
+                $existing->setDateModification(new \DateTime());
+
+                $this->kizeoLogger->info('Équipement contrat mis à jour (UPSERT)', [
+                    'agency' => $agencyCode,
+                    'numero' => $numero,
+                    'visite' => $visite,
+                    'annee' => $annee,
+                    'statut' => $statusCode,
+                ]);
+            }
+
+            $result['updated'] = 1;
+            return $result;
+        }
+
+        // ==========================================================================
+        // 5. CRÉATION (aucune ligne active)
+        // ==========================================================================
+        $entity = $this->equipmentFactory->createForAgency($agencyCode);
+
+        $entity->setIdContact($idContact);
+        $entity->setNumeroEquipement($numero);
+        $entity->setVisite($visite);
+        $entity->setAnnee($annee);
+        $entity->setDateDerniereVisite($newDateObj);
+        $entity->setTrigrammeTech($trigramme);
+        $entity->setIsHorsContrat(false);
+        $entity->setIsArchive(false);
+        $entity->setKizeoFormId($formId);
+        $entity->setKizeoDataId($dataId);
+        $entity->setDateEnregistrement(new \DateTime());
+
+        $entity->setLibelleEquipement((string) ($cr['libelle_equipement'] ?? ''));
+        $entity->setRepereSiteClient($cr['repere_site_client']);
+        $entity->setMiseEnService($cr['mise_en_service']);
+        $entity->setNumeroSerie($cr['numero_serie']);
+        $entity->setMarque($cr['marque']);
+        $entity->setModeFonctionnement($cr['mode_fonctionnement']);
+        $entity->setHauteur($cr['hauteur']);
+        $entity->setLargeur($cr['largeur']);
+        $entity->setStatutEquipement($cr['statut_equipement']);
+        $entity->setEtatEquipement($cr['etat_equipement']);
+        $entity->setAnomalies($cr['anomalies']);
+        $entity->setObservations($cr['observations']);
+
         if (!$dryRun) {
             $this->em->persist($entity);
-            
+
             $this->kizeoLogger->info('Équipement contrat créé', [
                 'agency' => $agencyCode,
                 'numero' => $numero,
@@ -904,6 +914,46 @@ class KizeoFormProcessor
 
         $result['created'] = 1;
         return $result;
+    }
+
+    /**
+     * Retourne la valeur du CR si renseignée (non vide), sinon la valeur
+     * existante — garantit qu'on n'efface jamais une donnée présente.
+     */
+    private function preferNew(?string $new, mixed $existing): mixed
+    {
+        if ($new !== null && trim($new) !== '') {
+            return trim($new);
+        }
+        return $existing;
+    }
+
+    /**
+     * Détermine si le CR (date $newDate) doit mettre à jour la ligne existante.
+     * Dates ISO 'Y-m-d' → comparaison lexicographique = chronologique.
+     *  - CR sans date → on ne touche pas.
+     *  - Ligne sans date (saisie parc) → toujours mettre à jour.
+     *  - Sinon → uniquement si CR strictement plus récent (idempotent).
+     */
+    private function crIsNewer(?string $existingDate, ?string $newDate): bool
+    {
+        if ($newDate === null || $newDate === '') {
+            return false;
+        }
+        if ($existingDate === null || $existingDate === '') {
+            return true;
+        }
+        return $newDate > $existingDate;
+    }
+
+    /**
+     * Coerce le retour de getEquipDataValue (string|array|null) en ?string.
+     * Les champs reference* sont des valeurs simples ; un éventuel tableau
+     * (select multiple) est ignoré ici (non pertinent pour ces champs).
+     */
+    private function stringOrNull(string|array|null $value): ?string
+    {
+        return is_string($value) ? $value : null;
     }
 
     // =========================================================================

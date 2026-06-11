@@ -101,6 +101,7 @@ class EquipmentPersister
     ): array {
         $stats = [
             'inserted_contract' => 0,
+            'updated_contract' => 0,
             'skipped_contract' => 0,
             'inserted_offcontract' => 0,
             'skipped_offcontract' => 0,
@@ -119,7 +120,7 @@ class EquipmentPersister
 
         // 1. Persister équipements au contrat
         foreach ($formData->contractEquipments as $equipment) {
-            $result = $this->persistContractEquipment(
+            $status = $this->persistContractEquipment(
                 $equipment,
                 $formData,
                 $tableName,
@@ -127,11 +128,11 @@ class EquipmentPersister
                 $dataId
             );
 
-            if ($result) {
-                $stats['inserted_contract']++;
-            } else {
-                $stats['skipped_contract']++;
-            }
+            match ($status) {
+                'inserted' => $stats['inserted_contract']++,
+                'updated'  => $stats['updated_contract']++,
+                default    => $stats['skipped_contract']++,
+            };
         }
 
         // 2. Persister équipements hors contrat
@@ -187,11 +188,25 @@ class EquipmentPersister
     }
 
     /**
-     * Persiste un équipement au contrat
-     * 
-     * Clé de déduplication : numero_equipement + visite + annee
-     * 
-     * @return bool True si inséré, False si déjà existant
+     * Persiste un équipement au contrat (UPSERT).
+     *
+     * Clé d'identité : id_contact + numero_equipement + visite + annee
+     *
+     * CORRECTION 11/06/2026 — UPSERT au lieu de INSERT-only :
+     *   Avant, si la ligne existait déjà (ex. équipement pré-créé manuellement
+     *   via « Gestion de parc » pour qu'il apparaisse dans la liste Kizeo du
+     *   technicien, ou généré en masse), l'import sautait l'équipement et JETAIT
+     *   toutes les données du CR (marque, n° série, mise en service, statut,
+     *   anomalies…). Résultat : équipements vides en BDD, et techniciens obligés
+     *   de re-saisir les mesures d'une visite à l'autre.
+     *
+     *   Désormais : si le CR est plus récent que la ligne existante (ou si la
+     *   ligne n'a pas de date de visite — cas typique d'une saisie parc), on
+     *   MET À JOUR la ligne avec les données du CR. La fusion est défensive
+     *   (cf. preferNew) : une valeur existante n'est JAMAIS écrasée par une
+     *   valeur vide/NULL du CR — on ne perd jamais de donnée.
+     *
+     * @return string 'inserted' | 'updated' | 'skipped'
      */
     private function persistContractEquipment(
         ExtractedEquipment $equipment,
@@ -199,77 +214,202 @@ class EquipmentPersister
         string $tableName,
         int $formId,
         int $dataId
-    ): bool {
+    ): string {
         if (!$equipment->hasValidNumero()) {
             $this->kizeoLogger->debug('Équipement contrat ignoré (sans numéro)');
-            return false;
+            return 'skipped';
         }
 
         $numero = strtoupper(trim($equipment->numeroEquipement));
         $visite = $equipment->getNormalizedVisite() ?? 'CE1';
         $annee = $formData->annee;
 
-        // Vérifier si existe déjà
-        if ($this->contractEquipmentExists($tableName, $numero, $visite, $annee, $formData->idContact)) {
-            $this->kizeoLogger->debug('Équipement contrat déjà existant', [
+        $existing = $this->findExistingContractEquipment($tableName, $numero, $visite, $annee, $formData->idContact);
+
+        // ── Cas 1 : aucune ligne active → INSERT ──
+        if ($existing === null) {
+            $this->insertEquipment($tableName, [
+                'id_contact' => $formData->idContact,
+                'numero_equipement' => $numero,
+                'libelle_equipement' => $equipment->libelleEquipement,
+                'visite' => $visite,
+                'annee' => $annee,
+                'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d'),
+                'repere_site_client' => $equipment->repereSiteClient,
+                'mise_en_service' => $equipment->miseEnService,
+                'numero_serie' => $equipment->numeroSerie,
+                'marque' => $equipment->marque,
+                'mode_fonctionnement' => $equipment->modeFonctionnement,
+                'hauteur' => $equipment->hauteur,
+                'largeur' => $equipment->largeur,
+                'longueur' => $equipment->longueur,
+                'statut_equipement' => $equipment->statutEquipement,
+                'etat_equipement' => $equipment->etatEquipement,
+                'anomalies' => $equipment->anomalies,
+                'observations' => $equipment->observations,
+                'trigramme_tech' => $formData->trigramme,
+                'is_hors_contrat' => 0,
+                'kizeo_form_id' => $formId,
+                'kizeo_data_id' => $dataId,
+                'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),
+            ]);
+
+            $this->kizeoLogger->debug('Équipement contrat inséré', [
+                'numero' => $numero,
+                'visite' => $visite,
+                'statut' => $equipment->statutEquipement,
+            ]);
+
+            return 'inserted';
+        }
+
+        // ── Cas 2 : ligne existante mais CR plus ancien (ou sans date) → SKIP ──
+        // On ne régresse jamais une visite déjà enregistrée par un CR antérieur.
+        $newDate = $formData->dateVisite?->format('Y-m-d');
+        if (!$this->crIsNewer($existing['date_derniere_visite'] ?? null, $newDate)) {
+            $this->kizeoLogger->debug('Équipement contrat déjà à jour (CR non plus récent)', [
                 'numero' => $numero,
                 'visite' => $visite,
                 'annee' => $annee,
+                'date_existante' => $existing['date_derniere_visite'] ?? null,
+                'date_cr' => $newDate,
             ]);
-            return false;
+            return 'skipped';
         }
 
-        // Insérer — FIX #3: ajout statut_equipement et observations
-        $this->insertEquipment($tableName, [
-            'id_contact' => $formData->idContact,
-            'numero_equipement' => $numero,
-            'libelle_equipement' => $equipment->libelleEquipement,
-            'visite' => $visite,
-            'annee' => $annee,
-            'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d'),
-            'repere_site_client' => $equipment->repereSiteClient,
-            'mise_en_service' => $equipment->miseEnService,
-            'numero_serie' => $equipment->numeroSerie,
-            'marque' => $equipment->marque,
-            'mode_fonctionnement' => $equipment->modeFonctionnement,
-            'hauteur' => $equipment->hauteur,
-            'largeur' => $equipment->largeur,
-            'longueur' => $equipment->longueur,
-            'statut_equipement' => $equipment->statutEquipement,
-            'etat_equipement' => $equipment->etatEquipement,
-            'anomalies' => $equipment->anomalies,
-            'observations' => $equipment->observations,
-            'trigramme_tech' => $formData->trigramme,
-            'is_hors_contrat' => 0,
-            'kizeo_form_id' => $formId,
-            'kizeo_data_id' => $dataId,
-            'date_enregistrement' => (new \DateTime())->format('Y-m-d H:i:s'),
-        ]);
+        // ── Cas 3 : CR plus récent → UPDATE (fusion défensive) ──
+        $this->updateContractEquipment($tableName, (int) $existing['id'], $existing, $equipment, $formData, $formId, $dataId);
 
-        $this->kizeoLogger->debug('Équipement contrat inséré', [
+        $this->kizeoLogger->info('Équipement contrat mis à jour (UPSERT)', [
             'numero' => $numero,
             'visite' => $visite,
+            'annee' => $annee,
+            'id' => $existing['id'],
+            'date_existante' => $existing['date_derniere_visite'] ?? null,
+            'date_cr' => $newDate,
             'statut' => $equipment->statutEquipement,
         ]);
 
-        return true;
+        return 'updated';
     }
 
     /**
-     * Vérifie si un équipement au contrat existe déjà
+     * Récupère la ligne active (is_archive = 0) d'un équipement au contrat
+     * pour la clé id_contact + numero + visite + annee, ou null si absente.
+     *
+     * On cible la ligne ACTIVE la plus récente : une ligne archivée ne bloque
+     * pas la ré-apparition d'un équipement re-signalé sur le terrain.
+     *
+     * @return array<string, mixed>|null
      */
-    private function contractEquipmentExists(
+    private function findExistingContractEquipment(
         string $tableName,
         string $numero,
         string $visite,
         string $annee,
         int $idContact
-    ): bool {
+    ): ?array {
         $sql = sprintf(
-            'SELECT COUNT(*) FROM %s WHERE id_contact = ? AND numero_equipement = ? AND visite = ? AND annee = ?',
+            'SELECT * FROM %s
+             WHERE id_contact = ? AND numero_equipement = ? AND visite = ? AND annee = ? AND is_archive = 0
+             ORDER BY id DESC LIMIT 1',
             $tableName
         );
-        return (int) $this->connection->fetchOne($sql, [$idContact, $numero, $visite, $annee]) > 0;
+
+        $row = $this->connection->fetchAssociative($sql, [$idContact, $numero, $visite, $annee]);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
+     * Détermine si le CR (date $newDate) doit mettre à jour la ligne existante
+     * (date $existingDate).
+     *
+     * Règles :
+     *  - CR sans date  → on ne touche pas (impossible de garantir la fraîcheur).
+     *  - Ligne sans date (saisie parc / génération en masse) → toujours mettre à jour.
+     *  - Sinon → mettre à jour uniquement si le CR est STRICTEMENT plus récent
+     *    (idempotent : ré-importer le même CR ne déclenche pas d'update).
+     *
+     * Les dates sont au format ISO 'Y-m-d' → comparaison lexicographique = chronologique.
+     */
+    private function crIsNewer(?string $existingDate, ?string $newDate): bool
+    {
+        if ($newDate === null || $newDate === '') {
+            return false;
+        }
+        if ($existingDate === null || $existingDate === '') {
+            return true;
+        }
+        return $newDate > $existingDate;
+    }
+
+    /**
+     * Met à jour une ligne d'équipement au contrat avec les données du CR.
+     *
+     * Fusion défensive (preferNew) : pour les champs « fiche équipement », la
+     * valeur existante est conservée si le CR renvoie vide/NULL — on n'efface
+     * jamais une donnée déjà présente. Les champs de provenance/visite
+     * (date_derniere_visite, trigramme, kizeo_*) sont positionnés sur le CR
+     * courant puisqu'il est, par construction, le plus récent.
+     *
+     * @param array<string, mixed> $existing Ligne BDD actuelle
+     */
+    private function updateContractEquipment(
+        string $tableName,
+        int $id,
+        array $existing,
+        ExtractedEquipment $equipment,
+        ExtractedFormData $formData,
+        int $formId,
+        int $dataId
+    ): void {
+        $data = [
+            // Champs fiche équipement : fusion défensive (ne jamais écraser par du vide)
+            'libelle_equipement'  => $this->preferNew($equipment->libelleEquipement, $existing['libelle_equipement'] ?? null),
+            'repere_site_client'  => $this->preferNew($equipment->repereSiteClient, $existing['repere_site_client'] ?? null),
+            'mise_en_service'     => $this->preferNew($equipment->miseEnService, $existing['mise_en_service'] ?? null),
+            'numero_serie'        => $this->preferNew($equipment->numeroSerie, $existing['numero_serie'] ?? null),
+            'marque'              => $this->preferNew($equipment->marque, $existing['marque'] ?? null),
+            'mode_fonctionnement' => $this->preferNew($equipment->modeFonctionnement, $existing['mode_fonctionnement'] ?? null),
+            'hauteur'             => $this->preferNew($equipment->hauteur, $existing['hauteur'] ?? null),
+            'largeur'             => $this->preferNew($equipment->largeur, $existing['largeur'] ?? null),
+            'longueur'            => $this->preferNew($equipment->longueur, $existing['longueur'] ?? null),
+            'statut_equipement'   => $this->preferNew($equipment->statutEquipement, $existing['statut_equipement'] ?? null),
+            'etat_equipement'     => $this->preferNew($equipment->etatEquipement, $existing['etat_equipement'] ?? null),
+            'anomalies'           => $this->preferNew($equipment->anomalies, $existing['anomalies'] ?? null),
+            'observations'        => $this->preferNew($equipment->observations, $existing['observations'] ?? null),
+            // Champs de la visite courante : on prend le CR (le plus récent)
+            'date_derniere_visite' => $formData->dateVisite?->format('Y-m-d') ?? ($existing['date_derniere_visite'] ?? null),
+            'trigramme_tech'       => $this->preferNew($formData->trigramme, $existing['trigramme_tech'] ?? null),
+            'kizeo_form_id'        => $formId,
+            'kizeo_data_id'        => $dataId,
+            'date_modification'    => (new \DateTime())->format('Y-m-d H:i:s'),
+        ];
+
+        $setParts = [];
+        $params = [];
+        foreach ($data as $column => $value) {
+            $setParts[] = sprintf('%s = ?', $column);
+            $params[] = $value;
+        }
+        $params[] = $id;
+
+        $sql = sprintf('UPDATE %s SET %s WHERE id = ?', $tableName, implode(', ', $setParts));
+
+        $this->connection->executeStatement($sql, $params);
+    }
+
+    /**
+     * Retourne la valeur du CR si elle est renseignée (non vide après trim),
+     * sinon la valeur existante — garantit qu'on n'efface jamais une donnée.
+     */
+    private function preferNew(?string $new, mixed $existing): mixed
+    {
+        if ($new !== null && trim($new) !== '') {
+            return trim($new);
+        }
+        return $existing;
     }
 
     /**
